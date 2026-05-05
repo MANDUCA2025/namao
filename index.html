@@ -226,7 +226,8 @@ body{font-family:'Poppins',sans-serif;background:#060D1A;
 .phone{width:390px;height:844px;background:var(--navy);border-radius:52px;
   border:2px solid var(--bd);overflow:hidden;position:relative;
   box-shadow:0 0 0 6px #060D1A,0 0 0 8px rgba(255,255,255,.04),
-             0 50px 100px rgba(0,0,0,.7);}
+             0 50px 100px rgba(0,0,0,.7);
+  touch-action:pan-y;-webkit-overflow-scrolling:touch;}
 .island{position:absolute;top:10px;left:50%;transform:translateX(-50%);
   width:120px;height:34px;background:#000;border-radius:20px;z-index:200;}
 .sbar{position:absolute;top:0;left:0;right:0;height:44px;
@@ -240,8 +241,10 @@ body{font-family:'Poppins',sans-serif;background:#060D1A;
 .screen{position:absolute;top:0;left:0;right:0;bottom:0;
   display:none;flex-direction:column;overflow:hidden;}
 .screen.active{display:flex;}
+.screen.active .scr-scroll{touch-action:pan-y;}
 .scr-scroll{flex:1;overflow-y:auto;overflow-x:hidden;
-  margin-top:44px;padding:0 18px 90px;scrollbar-width:none;}
+  margin-top:44px;padding:0 18px 100px;scrollbar-width:none;
+  -webkit-overflow-scrolling:touch;overscroll-behavior:contain;}
 .scr-scroll::-webkit-scrollbar{display:none;}
 
 /* ═══════════ BOTTOM NAV ═══════════ */
@@ -249,7 +252,9 @@ body{font-family:'Poppins',sans-serif;background:#060D1A;
   background:rgba(15,23,42,.97);backdrop-filter:blur(20px);
   border-top:1px solid rgba(255,255,255,.05);
   display:flex;align-items:center;justify-content:space-around;
-  padding:0 8px 20px;z-index:50;}
+  padding:0 8px 20px;z-index:50;
+  -webkit-user-select:none;user-select:none;touch-action:manipulation;}
+.botnav * {touch-action:manipulation;-webkit-tap-highlight-color:transparent;}
 .nb{display:flex;flex-direction:column;align-items:center;gap:4px;
   background:none;border:none;cursor:pointer;padding:8px 14px;
   border-radius:14px;transition:background .2s;font-family:'Poppins',sans-serif;}
@@ -275,7 +280,7 @@ body{font-family:'Poppins',sans-serif;background:#060D1A;
 .logo-icon{width:36px;height:36px;background:linear-gradient(135deg,var(--g),var(--gd));
   border-radius:12px;display:flex;align-items:center;justify-content:center;
   box-shadow:0 2px 12px rgba(34,197,94,.4);flex-shrink:0;}
-.logo-name{font-size:19px;font-weight:800;letter-spacing:-.5px;}
+.logo-name{font-size:19px;font-weight:800;letter-spacing:-.5px;color:var(--w);}
 .logo-name em{color:var(--g);font-style:normal;}
 .logo-sub{font-size:10px;color:var(--gr);font-weight:400;margin-top:1px;}
 
@@ -607,6 +612,8 @@ body{font-family:'Poppins',sans-serif;background:#060D1A;
   box-shadow:0 0 40px rgba(34,197,94,.35);margin-bottom:12px;}
 .auth-name{font-size:28px;font-weight:800;color:var(--w);letter-spacing:-1px;}
 .auth-name em{color:var(--g);font-style:normal;}
+.pin-logo-name{color:var(--w);}
+.pin-logo-name em{color:var(--g);font-style:normal;}
 .auth-slogan{font-size:12px;color:var(--gr);font-weight:400;margin-top:3px;}
 .auth-tabs{display:flex;margin:0 24px 24px;
   background:rgba(255,255,255,.05);border-radius:14px;
@@ -712,6 +719,8 @@ body{font-family:'Poppins',sans-serif;background:#060D1A;
   box-shadow:0 0 40px rgba(34,197,94,.4);}
 .pin-logo-name{font-size:26px;font-weight:800;color:var(--w);letter-spacing:-1px;}
 .pin-logo-name em{color:var(--g);font-style:normal;}
+.logo-name,.logo-name *{color:var(--w);}
+.logo-name em{color:var(--g)!important;}
 .pin-slogan{font-size:12px;color:var(--gr);}
 .pin-sub{font-size:14px;color:var(--gr);margin-bottom:32px;}
 .pin-dots{display:flex;gap:14px;margin-bottom:36px;}
@@ -832,11 +841,7 @@ body{font-family:'Poppins',sans-serif;background:#060D1A;
         </button>
       </div>
 
-      <div class="reminder" onclick="NM.toast('CNH vence em 15 dias! Renove pelo Detran.')">
-        <div class="rem-icon"><svg viewBox="0 0 24 24"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg></div>
-        <div style="flex:1"><div style="font-size:13px;font-weight:600;color:var(--w);">⚠️ CNH vence em 15 dias</div><div style="font-size:11px;color:var(--gr);font-weight:400;">Toque para ver detalhes</div></div>
-        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="var(--y)" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
-      </div>
+      <div id="reminder-banner" style="display:none;" class="reminder" onclick="NM.toast(NM.state.reminderMsg || '')"></div>
 
       <div class="stats">
         <div class="stat" onclick="NM.goto('s-docs')">
@@ -1562,19 +1567,31 @@ const NM = (() => {
 
   /* ── File input ── */
   const triggerFile = () => {
-    document.getElementById('file-input').click();
+    // Close upload sheet first, then trigger file input
     closeAllSheets();
+    // Small delay to let sheet close animation finish
+    setTimeout(() => document.getElementById('file-input').click(), 50);
   };
   const fileSelected = (input) => {
     const file = input.files[0];
     if (!file) return;
+    // Check file size - max 10MB
+    if (file.size > 10 * 1024 * 1024) {
+      toast('Arquivo muito grande. Máximo 10 MB.', 'err');
+      input.value = '';
+      return;
+    }
     const reader = new FileReader();
     reader.onload = (e) => {
       state.pendingFile = e.target.result;
       document.getElementById('nm-inp').value =
-        file.name.replace(/\.[^.]+$/, '');
+        file.name.replace(/\.[^.]+$/, '').substring(0, 50);
+      // Reset category selection to first
+      document.querySelectorAll('.cat-btn').forEach((b, i) => b.classList.toggle('on', i === 0));
+      state.selectedCat = 'Pessoais';
       openSheet('sheet-name');
     };
+    reader.onerror = () => toast('Erro ao ler arquivo. Tente novamente.', 'err');
     reader.readAsDataURL(file);
     input.value = '';
   };
@@ -1704,6 +1721,27 @@ const NM = (() => {
     document.getElementById('stat-favs').textContent = favs.length;
     document.getElementById('notif-dot').style.display =
       state.docs.length > 0 ? 'block' : 'none';
+
+    /* Dynamic reminder: show based on real docs */
+    const banner = document.getElementById('reminder-banner');
+    if (banner) {
+      // Look for docs with keywords that suggest expirable documents
+      const keywords = ['cnh','habilitação','ipva','iptu','seguro','crlv','passaporte','plano','contrato','apólice'];
+      const reminderDoc = state.docs.find(d =>
+        keywords.some(k => d.name.toLowerCase().includes(k))
+      );
+      if (reminderDoc) {
+        state.reminderMsg = 'Lembrete: verifique o vencimento de "' + reminderDoc.name + '"';
+        banner.style.display = 'flex';
+        banner.innerHTML =
+          '<div class="rem-icon"><svg viewBox="0 0 24 24"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg></div>' +
+          '<div style="flex:1"><div style="font-size:13px;font-weight:600;color:var(--w);">⚠️ Verifique: ' + escape(reminderDoc.name) + '</div>' +
+          '<div style="font-size:11px;color:var(--gr);font-weight:400;">Toque para lembrete</div></div>' +
+          '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="var(--y)" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>';
+      } else {
+        banner.style.display = 'none';
+      }
+    }
 
     /* Favs */
     const fs = document.getElementById('fav-scroll');
