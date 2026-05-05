@@ -63,7 +63,7 @@ body{font-family:'Poppins',sans-serif;background:#060D1A;display:flex;justify-co
 .searchbar .clear-btn svg{width:16px;height:16px;stroke:var(--gray);fill:none;}
 
 /* DOC ITEM */
-.docitem{display:flex;align-items:center;gap:12px;padding:13px 14px;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.07);border-radius:14px;cursor:pointer;transition:all .15s;margin-bottom:8px;}
+.docitem{display:flex;align-items:center;gap:12px;padding:13px 14px;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.07);border-radius:14px;cursor:pointer;transition:all .15s;margin-bottom:8px;-webkit-tap-highlight-color:rgba(34,197,94,0.15);touch-action:manipulation;user-select:none;}
 .docitem:active{background:rgba(255,255,255,0.08);}
 .docitem.hidden{display:none;}
 .dthumb{width:42px;height:42px;border-radius:12px;display:flex;align-items:center;justify-content:center;flex-shrink:0;}
@@ -777,7 +777,7 @@ setTimeout(()=>{
   document.getElementById('pinlock').style.opacity='0';
   document.getElementById('pinlock').style.transition='opacity .5s';
   setTimeout(()=>document.getElementById('pinlock').style.display='none',500);
-},1600);
+},4000);
 
 // ============ NAV ============
 function goto(id){
@@ -894,7 +894,7 @@ function docIcon(fmt){
   return `<svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>`;
 }
 function renderDocItem(doc, showShare=true){
-  return `<div class="docitem" id="ditem-${doc.id}" onclick="openDetail(${doc.id})">
+  return `<div class="docitem" id="ditem-${doc.id}" onclick="openDetail(${doc.id})" ontouchend="openDetail(${doc.id})">
     <div class="dthumb ${docThumbClass(doc.fmt)}">${docIcon(doc.fmt)}</div>
     <div class="dinfo">
       <div class="dname">${doc.name}${doc.fav?' ⭐':''}</div>
@@ -915,7 +915,7 @@ function renderHome(){
     fs.innerHTML=`<div class="favcard empty-fav"><div style="font-size:22px">⭐</div><div style="font-size:11px;color:var(--gray);text-align:center;margin-top:4px;font-weight:400;">Nenhum favorito</div></div>`;
   } else {
     fs.innerHTML=favs.slice(0,6).map(d=>`
-      <div class="favcard" onclick="openDetail(${d.id})">
+      <div class="favcard" onclick="openDetail(${d.id})" ontouchend="openDetail(${d.id})">
         <div class="fav-icon">${docIcon(d.fmt)}</div>
         <div class="fav-name">${d.name}</div>
         <div class="fav-date">${d.date}</div>
@@ -986,7 +986,11 @@ function filterCat(cat){
 }
 
 // ============ DETAIL ============
+let _lastDetailId=0,_lastDetailTime=0;
 function openDetail(id){
+  const now=Date.now();
+  if(id===_lastDetailId&&now-_lastDetailTime<600) return;
+  _lastDetailId=id; _lastDetailTime=now;
   currentDocId=id;
   const doc=docs.find(d=>d.id===id);
   if(!doc) return;
@@ -1050,9 +1054,18 @@ function quickShare(id){
 }
 function shareViaWA(){
   const doc=docs.find(d=>d.id===currentDocId); if(!doc) return;
-  const msg=encodeURIComponent('Segue o documento: '+doc.name+'\n(Enviado via NaMão)');
-  window.open('https://wa.me/?text='+msg,'_blank');
+  // Step 1: download the file so user can attach manually
+  const a=document.createElement('a');
+  a.href=doc.data;
+  a.download=doc.name+(doc.fmt==='IMG'?'.jpg':'.pdf');
+  a.click();
+  // Step 2: open WhatsApp with instruction
+  setTimeout(()=>{
+    const msg=encodeURIComponent('📄 Segue o documento: *'+doc.name+'*\n\n👆 O arquivo foi baixado no seu celular. Toque no clipe 📎 aqui no WhatsApp e selecione o arquivo para anexar.\n\n_Enviado via NaMão_');
+    window.open('https://wa.me/?text='+msg,'_blank');
+  },800);
   closeAllSheets();
+  toast('📥 Arquivo baixado! Agora anexe no WhatsApp ✓','','normal');
 }
 function shareViaEmail(){
   const doc=docs.find(d=>d.id===currentDocId); if(!doc) return;
