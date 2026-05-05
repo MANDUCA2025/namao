@@ -81,9 +81,9 @@ body{font-family:'Poppins',sans-serif;background:#060D1A;display:flex;justify-co
 .dshare svg{width:16px;height:16px;stroke:var(--gray);fill:none;}
 
 /* MODAL BOTTOM SHEET */
-.overlay{position:absolute;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.55);z-index:190;display:none;}
+.overlay{position:absolute;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.55);z-index:390;display:none;}
 .overlay.on{display:block;}
-.sheet{position:absolute;bottom:0;left:0;right:0;background:var(--navy-mid);border-radius:26px 26px 0 0;padding:8px 20px 36px;z-index:200;transform:translateY(100%);transition:transform .32s cubic-bezier(.34,1.56,.64,1);border-top:1px solid rgba(255,255,255,0.07);}
+.sheet{position:absolute;bottom:0;left:0;right:0;background:var(--navy-mid);border-radius:26px 26px 0 0;padding:8px 20px 36px;z-index:400;transform:translateY(100%);transition:transform .32s cubic-bezier(.34,1.56,.64,1);border-top:1px solid rgba(255,255,255,0.07);}
 .sheet.open{transform:translateY(0);}
 .handle{width:38px;height:4px;background:rgba(255,255,255,.15);border-radius:2px;margin:10px auto 18px;}
 .sheet-title{font-size:17px;font-weight:700;color:#fff;margin-bottom:16px;}
@@ -632,7 +632,7 @@ body{font-family:'Poppins',sans-serif;background:#060D1A;display:flex;justify-co
   </div>
 
   <!-- OVERLAYS / SHEETS -->
-  <div class="overlay" id="overlay" onclick="closeAllSheets()"></div>
+  <div class="overlay" id="overlay" onclick="closeSheetOnly()"></div>
 
   <!-- UPLOAD SHEET -->
   <div class="sheet" id="sheet-upload">
@@ -807,7 +807,12 @@ function closeAllSheets(){
   document.querySelectorAll('.sheet').forEach(s=>s.classList.remove('open'));
   stopCamera();
 }
-function openUpload(){ closeAllSheets(); openSheet('sheet-upload'); }
+function closeSheetOnly(){
+  document.getElementById('overlay').classList.remove('on');
+  document.querySelectorAll('.sheet').forEach(s=>s.classList.remove('open'));
+  stopCamera();
+}
+function openUpload(){ closeSheetOnly(); openSheet('sheet-upload'); }
 
 // ============ FILE INPUT ============
 function triggerFileInput(){ document.getElementById('file-input').click(); closeAllSheets(); }
@@ -1052,33 +1057,72 @@ function quickShare(id){
   document.getElementById('share-title').textContent='Compartilhar: '+doc.name;
   openSheet('sheet-share');
 }
-function shareViaWA(){
+async function shareViaWA(){
   const doc=docs.find(d=>d.id===currentDocId); if(!doc) return;
-  // Step 1: download the file so user can attach manually
+  closeSheetOnly();
+  // Try native Web Share API with file (works on Android Chrome and iOS Safari)
+  try {
+    const res = await fetch(doc.data);
+    const blob = await res.blob();
+    const ext = doc.fmt==='IMG'?'jpg':'pdf';
+    const mime = doc.fmt==='IMG'?'image/jpeg':'application/pdf';
+    const file = new File([blob], doc.name+'.'+ext, {type: mime});
+    if(navigator.canShare && navigator.canShare({files:[file]})){
+      await navigator.share({
+        files:[file],
+        title: doc.name,
+        text:'Enviado via NaMão'
+      });
+      toast('✓ Compartilhado com sucesso!','','normal');
+      return;
+    }
+  } catch(e){}
+  // Fallback: open WhatsApp with text + save file to gallery
   const a=document.createElement('a');
   a.href=doc.data;
   a.download=doc.name+(doc.fmt==='IMG'?'.jpg':'.pdf');
-  a.click();
-  // Step 2: open WhatsApp with instruction
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
   setTimeout(()=>{
-    const msg=encodeURIComponent('📄 Segue o documento: *'+doc.name+'*\n\n👆 O arquivo foi baixado no seu celular. Toque no clipe 📎 aqui no WhatsApp e selecione o arquivo para anexar.\n\n_Enviado via NaMão_');
+    const msg=encodeURIComponent('📄 *'+doc.name+'*\nEnviado via NaMão ⚡');
     window.open('https://wa.me/?text='+msg,'_blank');
-  },800);
-  closeAllSheets();
-  toast('📥 Arquivo baixado! Agora anexe no WhatsApp ✓','','normal');
+    toast('Arquivo salvo na galeria — anexe no WhatsApp 📎','','normal');
+  },600);
 }
-function shareViaEmail(){
+async function shareViaEmail(){
   const doc=docs.find(d=>d.id===currentDocId); if(!doc) return;
-  window.open('mailto:?subject='+encodeURIComponent(doc.name)+'&body='+encodeURIComponent('Segue o documento: '+doc.name+'\n\nEnviado via NaMão - Seus documentos sempre com você.'),'_blank');
-  closeAllSheets();
+  closeSheetOnly();
+  // Try share with file first
+  try {
+    const res = await fetch(doc.data);
+    const blob = await res.blob();
+    const ext = doc.fmt==='IMG'?'jpg':'pdf';
+    const mime = doc.fmt==='IMG'?'image/jpeg':'application/pdf';
+    const file = new File([blob], doc.name+'.'+ext, {type: mime});
+    if(navigator.canShare && navigator.canShare({files:[file]})){
+      await navigator.share({files:[file], title:doc.name});
+      return;
+    }
+  } catch(e){}
+  // Fallback mailto
+  window.open('mailto:?subject='+encodeURIComponent(doc.name)+'&body='+encodeURIComponent('Segue o documento: '+doc.name+'\n\nEnviado via NaMão.'),'_blank');
 }
 async function shareViaNative(){
   const doc=docs.find(d=>d.id===currentDocId); if(!doc) return;
-  if(navigator.share){
-    try{ await navigator.share({title:doc.name,text:'Documento: '+doc.name+'\nEnviado via NaMão'}); }
-    catch(e){}
-  } else { toast('Compartilhamento nativo não disponível neste dispositivo','','err'); }
-  closeAllSheets();
+  closeSheetOnly();
+  try {
+    const res = await fetch(doc.data);
+    const blob = await res.blob();
+    const ext = doc.fmt==='IMG'?'jpg':'pdf';
+    const mime = doc.fmt==='IMG'?'image/jpeg':'application/pdf';
+    const file = new File([blob], doc.name+'.'+ext, {type: mime});
+    if(navigator.canShare && navigator.canShare({files:[file]})){
+      await navigator.share({files:[file], title:doc.name, text:'Enviado via NaMão'});
+    } else if(navigator.share){
+      await navigator.share({title:doc.name, text:'Documento: '+doc.name+'\nEnviado via NaMão'});
+    } else {
+      toast('Compartilhamento não disponível neste navegador','','err');
+    }
+  } catch(e){ if(e.name!=='AbortError') toast('Erro ao compartilhar','','err'); }
 }
 function copyLink(){
   const doc=docs.find(d=>d.id===currentDocId); if(!doc) return;
