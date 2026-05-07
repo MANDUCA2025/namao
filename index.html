@@ -850,6 +850,20 @@ body{font-family:'Poppins',sans-serif;background:#060D1A;
         </button>
       </div>
 
+      <!-- Doc limit bar (free users) -->
+      <div id="limit-bar-wrap" style="display:none;background:rgba(239,68,68,.08);border:1px solid rgba(239,68,68,.2);border-radius:14px;padding:12px 16px;margin-bottom:14px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:7px;">
+          <span style="font-size:13px;font-weight:600;color:#fff;">Documentos gratuitos</span>
+          <span style="font-size:12px;font-weight:700;" id="limit-counter-text">0/3</span>
+        </div>
+        <div style="height:6px;background:rgba(255,255,255,.1);border-radius:3px;overflow:hidden;">
+          <div id="limit-bar-fill" style="height:100%;border-radius:3px;transition:width .4s;background:var(--g);width:0%"></div>
+        </div>
+        <div style="font-size:11px;color:var(--gr);margin-top:7px;font-weight:400;" id="limit-bar-hint">
+          Faça upgrade para documentos ilimitados
+        </div>
+      </div>
+
       <div id="reminder-banner" style="display:none;" class="reminder" onclick="NM.toast(NM.state.reminderMsg || '')"></div>
 
       <div class="stats">
@@ -981,7 +995,7 @@ body{font-family:'Poppins',sans-serif;background:#060D1A;
           <div class="plan-price">R$<span> 0</span></div>
           <div class="plan-per">Para sempre</div>
           <div class="plan-hr"></div>
-          <div class="pf ok"><div class="ck"><svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg></div>Até 10 docs</div>
+          <div class="pf ok"><div class="ck"><svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg></div>Até 3 docs</div>
           <div class="pf ok"><div class="ck"><svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg></div>Categorias</div>
           <div class="pf ok"><div class="ck"><svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg></div>Compartilhar</div>
           <div class="pf"><span style="opacity:.3">✕</span> Lembretes</div>
@@ -1335,14 +1349,17 @@ const NM = (() => {
   const state = {
     docs: [],
     user: null,
+    isPremium: false,
     currentDocId: null,
     pendingFile: null,
     selectedCat: 'Pessoais',
     filter: 'Todos',
     camStream: null,
     pinBuf: '',
-    firstLogin: true
+    firstLogin: true,
+    reminderMsg: ''
   };
+  const FREE_LIMIT = 3;
 
   /* ── Clock ── */
   const updateClock = () => {
@@ -1593,7 +1610,14 @@ const NM = (() => {
     stopCamera();
   };
   const closeSheetOnly = closeAllSheets;
-  const openUpload = () => { closeAllSheets(); openSheet('sheet-upload'); };
+  const openUpload = () => {
+    if (!state.isPremium && state.docs.length >= FREE_LIMIT) {
+      _showUpgradeModal();
+      return;
+    }
+    closeAllSheets();
+    openSheet('sheet-upload');
+  };
 
   /* ── File input ── */
   const triggerFile = () => {
@@ -1673,6 +1697,13 @@ const NM = (() => {
     const name = document.getElementById('nm-inp').value.trim();
     if (!name)              return toast('Digite um nome para o documento', 'err');
     if (!state.pendingFile) return toast('Nenhum arquivo selecionado', 'err');
+
+    // Check free limit
+    if (!state.isPremium && state.docs.length >= FREE_LIMIT) {
+      closeAllSheets();
+      _showUpgradeModal();
+      return;
+    }
 
     const ext  = state.pendingFile.startsWith('data:image') ? 'IMG' : 'PDF';
     const kb   = Math.round(state.pendingFile.length * 0.75 / 1024);
@@ -1769,6 +1800,40 @@ const NM = (() => {
     document.getElementById('stat-favs').textContent = favs.length;
     document.getElementById('notif-dot').style.display =
       state.docs.length > 0 ? 'block' : 'none';
+
+    /* Limit bar — only for free users */
+    const limitWrap = document.getElementById('limit-bar-wrap');
+    if (limitWrap) {
+      if (!state.isPremium) {
+        limitWrap.style.display = 'block';
+        const used = state.docs.length;
+        const pct  = Math.min(100, Math.round(used / FREE_LIMIT * 100));
+        document.getElementById('limit-counter-text').textContent = used + '/' + FREE_LIMIT;
+        const fill = document.getElementById('limit-bar-fill');
+        fill.style.width = pct + '%';
+        // Color: green → yellow → red
+        fill.style.background = pct >= 100 ? 'var(--r)' : pct >= 67 ? 'var(--y)' : 'var(--g)';
+        const hint = document.getElementById('limit-bar-hint');
+        if (used >= FREE_LIMIT) {
+          hint.textContent = '🔒 Limite atingido! Assine o Premium para continuar.';
+          hint.style.color = 'var(--r)';
+          limitWrap.style.borderColor = 'rgba(239,68,68,.4)';
+          limitWrap.style.cursor = 'pointer';
+          limitWrap.onclick = () => _showUpgradeModal();
+        } else if (used === FREE_LIMIT - 1) {
+          hint.textContent = '⚠️ Último documento gratuito! Assine o Premium.';
+          hint.style.color = 'var(--y)';
+          limitWrap.style.borderColor = 'rgba(251,191,36,.3)';
+        } else {
+          hint.textContent = 'Faça upgrade para documentos ilimitados';
+          hint.style.color = 'var(--gr)';
+          limitWrap.style.borderColor = 'rgba(239,68,68,.2)';
+          limitWrap.onclick = null;
+        }
+      } else {
+        limitWrap.style.display = 'none';
+      }
+    }
 
     /* Dynamic reminder: show based on real docs */
     (function() {
@@ -2180,6 +2245,17 @@ const NM = (() => {
   /* ── Init render ── */
   renderHome(); renderDocs();
 
+  /* ── Upgrade Modal ── */
+  const _showUpgradeModal = () => {
+    document.getElementById('upgrade-overlay').style.display = 'block';
+    const modal = document.getElementById('upgrade-modal');
+    modal.style.transform = 'translateY(0)';
+  };
+  const closeUpgradeModal = () => {
+    document.getElementById('upgrade-overlay').style.display = 'none';
+    document.getElementById('upgrade-modal').style.transform = 'translateY(100%)';
+  };
+
   /* ── Premium / Stripe ── */
   // Firebase Function URLs (Cloud Run format)
   const FN_CHECKOUT = 'https://createcheckoutsession-n2ayztjq2q-uc.a.run.app';
@@ -2222,13 +2298,15 @@ const NM = (() => {
       const res  = await fetch(FN_CHECK_PREMIUM + '?userId=' + state.user.uid);
       const data = await res.json();
       state.isPremium = data.premium || false;
-      // Update UI
-      const planEl = document.querySelector('.menu-item .mi-desc:last-of-type');
+      renderHome(); renderDocs();
       if (state.isPremium) {
-        toast('✨ Você é Premium! Aproveite todos os recursos.');
+        // Highlight Pro plan
         document.querySelectorAll('.plan.pro').forEach(el => {
           el.style.boxShadow = '0 0 30px rgba(34,197,94,0.4)';
         });
+        // Update profile plan text
+        const planDesc = document.querySelector('#s-profile .mi-desc');
+        if (planDesc) planDesc.textContent = 'Premium ✨ ativo';
       }
       return state.isPremium;
     } catch(e) {
@@ -2402,7 +2480,8 @@ const NM = (() => {
     togglePinSetup, pinSetupKey, pinSetupDel, cancelPinSetup,
     toggleBioSetup, activateBiometric, cancelBioSetup,
     /* Premium */
-    startCheckout, checkPremiumStatus
+    startCheckout, checkPremiumStatus,
+    closeUpgradeModal
   };
 })();
 </script>
