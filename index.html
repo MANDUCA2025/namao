@@ -755,10 +755,19 @@ body{font-family:'Poppins',sans-serif;background:#060D1A;
   display:flex;align-items:center;justify-content:center;
   font-size:11px;border:2px solid var(--navy);}
 
+@keyframes spin{to{transform:rotate(360deg);}}
 /* ═══════════ ANIMATIONS ═══════════ */
 @keyframes fadeUp{from{opacity:0;transform:translateY(10px);}to{opacity:1;transform:translateY(0);}}
 .screen.active .scr-scroll>*{animation:fadeUp .25s ease-out;}
 </style>
+  <!-- PDF.js for in-app PDF preview -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+  <script>
+    if (typeof pdfjsLib !== 'undefined') {
+      pdfjsLib.GlobalWorkerOptions.workerSrc =
+        'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+    }
+  </script>
 </head>
 <body>
 <div class="phone" id="phone">
@@ -1083,11 +1092,26 @@ body{font-family:'Poppins',sans-serif;background:#060D1A;
         <svg viewBox="0 0 24 24"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
       </button>
     </div>
-    <div class="detail-preview" id="dd-preview">
-      <div class="detail-preview-type" id="dd-type">PDF</div>
-      <svg id="dd-preview-icon" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" stroke-width="1"/><polyline points="14 2 14 8 20 8" stroke-width="1"/><line x1="16" y1="13" x2="8" y2="13" stroke-width="1"/><line x1="16" y1="17" x2="8" y2="17" stroke-width="1"/></svg>
-      <img id="dd-preview-img" style="display:none;width:100%;height:100%;object-fit:contain;border-radius:18px;padding:8px;" alt="preview">
-      <iframe id="dd-preview-pdf" style="display:none;width:100%;height:100%;border:none;border-radius:18px;" title="preview"></iframe>
+    <div class="detail-preview" id="dd-preview" style="height:220px;overflow:hidden;">
+      <!-- Loading state -->
+      <div id="dd-preview-loading" style="display:none;flex-direction:column;align-items:center;gap:8px;">
+        <div style="width:28px;height:28px;border:3px solid rgba(34,197,94,.2);border-top-color:var(--g);border-radius:50%;animation:spin .8s linear infinite;"></div>
+        <div style="font-size:11px;color:var(--gr);">Carregando...</div>
+      </div>
+      <!-- Default icon -->
+      <div id="dd-preview-default" style="display:flex;flex-direction:column;align-items:center;gap:6px;">
+        <div class="detail-preview-type" id="dd-type">PDF</div>
+        <svg id="dd-preview-icon" viewBox="0 0 24 24" style="width:64px;height:64px;stroke:var(--g);fill:none;opacity:.55;">
+          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" stroke-width="1"/>
+          <polyline points="14 2 14 8 20 8" stroke-width="1"/>
+          <line x1="16" y1="13" x2="8" y2="13" stroke-width="1"/>
+          <line x1="16" y1="17" x2="8" y2="17" stroke-width="1"/>
+        </svg>
+      </div>
+      <!-- Image preview -->
+      <img id="dd-preview-img" style="display:none;width:100%;height:100%;object-fit:contain;padding:6px;" alt="preview">
+      <!-- PDF canvas preview -->
+      <canvas id="dd-preview-canvas" style="display:none;max-width:100%;max-height:100%;object-fit:contain;"></canvas>
       <div class="detail-wm">NaMão · Organização pessoal de documentos</div>
     </div>
     <div id="detail-open-hint" style="display:none;text-align:center;margin:0 18px 6px;font-size:11px;color:var(--g);font-weight:500;">
@@ -1894,53 +1918,105 @@ const NM = (() => {
     _updateDetailFavUI(doc.fav);
 
     /* Real preview */
-    const previewImg  = document.getElementById('dd-preview-img');
-    const previewPdf  = document.getElementById('dd-preview-pdf');
-    const previewIcon = document.getElementById('dd-preview-icon');
-    const previewType = document.getElementById('dd-type');
-
-    // Reset
-    previewImg.style.display  = 'none';
-    previewPdf.style.display  = 'none';
-    previewIcon.style.display = 'block';
-    previewType.style.display = 'block';
-
-    const src = doc.url || doc.data;
-    if (src) {
-      if (doc.fmt === 'IMG') {
-        previewImg.src = src;
-        previewImg.style.display = 'block';
-        previewIcon.style.display = 'none';
-        previewType.style.display = 'none';
-      } else if (doc.fmt === 'PDF') {
-        // Show PDF in iframe if data URL, or link if Firebase URL
-        if (src.startsWith('data:')) {
-          previewPdf.src = src;
-          previewPdf.style.display = 'block';
-          previewIcon.style.display = 'none';
-          previewType.style.display = 'none';
-        } else {
-          // Firebase URL - open in new tab button instead
-          previewType.style.display = 'block';
-          previewIcon.style.display = 'block';
-          // Add tap to open
-          document.getElementById('dd-preview').onclick = () => window.open(src, '_blank');
-          document.getElementById('dd-preview').style.cursor = 'pointer';
-          document.getElementById('detail-open-hint').style.display = 'block';
-        }
-      }
-    }
+    _loadDocPreview(doc);
 
     document.getElementById('doc-detail').classList.add('open');
   };
 
+  const _loadDocPreview = async (doc) => {
+    const elDefault  = document.getElementById('dd-preview-default');
+    const elLoading  = document.getElementById('dd-preview-loading');
+    const elImg      = document.getElementById('dd-preview-img');
+    const elCanvas   = document.getElementById('dd-preview-canvas');
+    const elHint     = document.getElementById('detail-open-hint');
+    const elPreview  = document.getElementById('dd-preview');
+
+    // Reset all
+    elDefault.style.display  = 'flex';
+    elLoading.style.display  = 'none';
+    elImg.style.display      = 'none';
+    elCanvas.style.display   = 'none';
+    if (elHint) elHint.style.display = 'none';
+    elPreview.onclick        = null;
+    elPreview.style.cursor   = 'default';
+
+    const src = doc.url || doc.data;
+    if (!src) return;
+
+    if (doc.fmt === 'IMG') {
+      // ── Image preview ──
+      elImg.onload = () => {
+        elDefault.style.display = 'none';
+        elLoading.style.display = 'none';
+        elImg.style.display     = 'block';
+      };
+      elImg.onerror = () => { /* keep default icon */ };
+      elImg.src = src;
+      return;
+    }
+
+    if (doc.fmt === 'PDF') {
+      // ── PDF preview via PDF.js ──
+      if (typeof pdfjsLib === 'undefined') {
+        // PDF.js not loaded - show tap to open
+        if (elHint) elHint.style.display = 'block';
+        elPreview.onclick = () => window.open(src, '_blank');
+        elPreview.style.cursor = 'pointer';
+        return;
+      }
+
+      elDefault.style.display = 'none';
+      elLoading.style.display = 'flex';
+
+      try {
+        const loadingTask = pdfjsLib.getDocument(src);
+        const pdf    = await loadingTask.promise;
+        const page   = await pdf.getPage(1);
+        const previewEl = document.getElementById('dd-preview');
+        const maxW   = previewEl ? previewEl.clientWidth - 16 : 340;
+        const maxH   = 200;
+        const vp     = page.getViewport({ scale: 1 });
+        const scale  = Math.min(maxW / vp.width, maxH / vp.height);
+        const viewport = page.getViewport({ scale });
+
+        elCanvas.width  = viewport.width;
+        elCanvas.height = viewport.height;
+
+        await page.render({
+          canvasContext: elCanvas.getContext('2d'),
+          viewport
+        }).promise;
+
+        elLoading.style.display = 'none';
+        elCanvas.style.display  = 'block';
+
+        // Tap to open full PDF
+        elPreview.onclick = () => window.open(src, '_blank');
+        elPreview.style.cursor = 'pointer';
+        if (elHint) elHint.style.display = 'block';
+
+      } catch(e) {
+        console.error('PDF preview error:', e);
+        elLoading.style.display = 'none';
+        elDefault.style.display = 'flex';
+        if (elHint) elHint.style.display = 'block';
+        elPreview.onclick = () => window.open(src, '_blank');
+        elPreview.style.cursor = 'pointer';
+      }
+    }
+  };
+
   const closeDetail = () => {
     document.getElementById('doc-detail').classList.remove('open');
-    // Reset preview and hint
-    const previewImg = document.getElementById('dd-preview-img');
-    const previewPdf = document.getElementById('dd-preview-pdf');
-    if (previewImg) { previewImg.src = ''; previewImg.style.display = 'none'; }
-    if (previewPdf) { previewPdf.src = ''; previewPdf.style.display = 'none'; }
+    // Reset preview
+    const previewImg    = document.getElementById('dd-preview-img');
+    const previewCanvas = document.getElementById('dd-preview-canvas');
+    const previewDef    = document.getElementById('dd-preview-default');
+    const previewLoad   = document.getElementById('dd-preview-loading');
+    if (previewImg)    { previewImg.src = ''; previewImg.style.display = 'none'; }
+    if (previewCanvas) { previewCanvas.style.display = 'none'; }
+    if (previewDef)    previewDef.style.display = 'flex';
+    if (previewLoad)   previewLoad.style.display = 'none';
     const hint = document.getElementById('detail-open-hint');
     if (hint) hint.style.display = 'none';
     const prev = document.getElementById('dd-preview');
