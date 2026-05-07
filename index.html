@@ -835,7 +835,7 @@ body{font-family:'Poppins',sans-serif;background:#060D1A;
             <div class="logo-sub" id="home-greeting">Bom dia 👋</div>
           </div>
         </div>
-        <button style="width:40px;height:40px;background:rgba(255,255,255,.05);border-radius:13px;display:flex;align-items:center;justify-content:center;border:none;cursor:pointer;position:relative;" onclick="NM.toast('2 lembretes ativos — CNH e IPVA')">
+        <button style="width:40px;height:40px;background:rgba(255,255,255,.05);border-radius:13px;display:flex;align-items:center;justify-content:center;border:none;cursor:pointer;position:relative;" onclick="NM.toast(NM.state.reminderMsg || 'Nenhum lembrete ativo')">
           <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="#fff" stroke-width="1.8"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
           <div id="notif-dot" style="position:absolute;top:8px;right:8px;width:7px;height:7px;background:var(--r);border-radius:50%;border:2px solid var(--navy);display:none;"></div>
         </button>
@@ -854,7 +854,7 @@ body{font-family:'Poppins',sans-serif;background:#060D1A;
           <div class="stat-l">Favoritos</div>
         </div>
         <div class="stat">
-          <div class="stat-n y">2</div>
+          <div class="stat-n y" id="stat-reminders">0</div>
           <div class="stat-l">Lembretes</div>
         </div>
       </div>
@@ -1030,19 +1030,19 @@ body{font-family:'Poppins',sans-serif;background:#060D1A;
         <div class="menu-item">
           <div class="mi-ico" style="background:rgba(34,197,94,.12)"><svg viewBox="0 0 24 24" style="stroke:var(--g)"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg></div>
           <div style="flex:1"><div class="mi-name">PIN de acesso</div><div class="mi-desc">Ativo · 4 dígitos</div></div>
-          <div class="toggle" onclick="this.classList.toggle('off')"></div>
+          <div class="toggle off" id="tog-pin" onclick="this.classList.toggle('off')"></div>
         </div>
         <div class="menu-item">
           <div class="mi-ico" style="background:rgba(59,130,246,.12)"><svg viewBox="0 0 24 24" style="stroke:var(--bl)"><circle cx="12" cy="8" r="4"/><path d="M6 20v-1a6 6 0 0 1 12 0v1"/></svg></div>
           <div style="flex:1"><div class="mi-name">Face ID / Touch ID</div><div class="mi-desc">Biometria habilitada</div></div>
-          <div class="toggle" onclick="this.classList.toggle('off')"></div>
+          <div class="toggle off" id="tog-bio" onclick="this.classList.toggle('off')"></div>
         </div>
       </div>
       <div style="font-size:13px;font-weight:600;color:var(--w);margin-bottom:10px;">Conta</div>
       <div class="menu-sec">
-        <div class="menu-item" onclick="NM.toast('2 lembretes ativos: CNH e IPVA')">
+        <div class="menu-item" onclick="NM.toast(NM.state.reminderMsg || 'Nenhum lembrete ativo')">
           <div class="mi-ico" style="background:rgba(251,191,36,.12)"><svg viewBox="0 0 24 24" style="stroke:var(--y)"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg></div>
-          <div style="flex:1"><div class="mi-name">Lembretes</div><div class="mi-desc">2 ativos</div></div>
+          <div style="flex:1"><div class="mi-name">Lembretes</div><div class="mi-desc" id="reminder-count-desc">Nenhum ativo</div></div>
           <div class="mi-arrow"><svg viewBox="0 0 24 24"><polyline points="9 18 15 12 9 6"/></svg></div>
         </div>
         <div class="menu-item" onclick="NM.toast('Backup realizado! ✓')">
@@ -1651,10 +1651,11 @@ const NM = (() => {
     closeAllSheets();
     toast('⏳ Salvando ' + name + '...');
 
+    const fileData = state.pendingFile; // keep reference for error recovery
     const docData = {
       name, cat: state.selectedCat, fmt: ext, size,
       date: new Date().toLocaleDateString('pt-BR'),
-      data: state.pendingFile, fav: false
+      data: fileData, fav: false
     };
     state.pendingFile = null;
 
@@ -1666,7 +1667,24 @@ const NM = (() => {
           toast('✓ ' + name + ' salvo na nuvem! ☁️');
         }
       } catch(e) {
-        toast('Erro ao salvar. Tente novamente.', 'err');
+        console.error('saveDoc error:', e);
+        let errMsg = 'Erro ao salvar. Tente novamente.';
+        if (e.code === 'storage/unauthorized')
+          errMsg = 'Sem permissão no Storage. Verifique as regras do Firebase.';
+        else if (e.code === 'storage/quota-exceeded')
+          errMsg = 'Cota de armazenamento excedida.';
+        else if (e.code === 'storage/invalid-format')
+          errMsg = 'Formato de arquivo inválido.';
+        else if (e.code === 'storage/canceled')
+          errMsg = 'Upload cancelado.';
+        else if (e.message && e.message.includes('CORS'))
+          errMsg = 'Erro de CORS. Configure o Firebase Storage.';
+        else if (!navigator.onLine)
+          errMsg = 'Sem conexão. Verifique sua internet.';
+        toast(errMsg, 'err');
+        // Restore name sheet so user can try again
+        state.pendingFile = fileData; // restore for retry
+        openSheet('sheet-name');
       }
     } else {
       /* Offline fallback */
@@ -1740,7 +1758,20 @@ const NM = (() => {
           '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="var(--y)" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>';
       } else {
         banner.style.display = 'none';
+      // Update reminder count
+      const rc = document.getElementById('stat-reminders');
+      if (rc) rc.textContent = '0';
+      const rcd = document.getElementById('reminder-count-desc');
+      if (rcd) rcd.textContent = 'Nenhum ativo';
+      state.reminderMsg = '';
       }
+    }
+    // Update reminder stat when doc found
+    if (reminderDoc) {
+      const rc = document.getElementById('stat-reminders');
+      if (rc) rc.textContent = '1';
+      const rcd = document.getElementById('reminder-count-desc');
+      if (rcd) rcd.textContent = '1 ativo — ' + reminderDoc.name.substring(0, 15);
     }
 
     /* Favs */
