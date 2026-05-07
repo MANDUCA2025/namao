@@ -1030,12 +1030,12 @@ body{font-family:'Poppins',sans-serif;background:#060D1A;
         <div class="menu-item">
           <div class="mi-ico" style="background:rgba(34,197,94,.12)"><svg viewBox="0 0 24 24" style="stroke:var(--g)"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg></div>
           <div style="flex:1"><div class="mi-name">PIN de acesso</div><div class="mi-desc">Ativo · 4 dígitos</div></div>
-          <div class="toggle off" id="tog-pin" onclick="this.classList.toggle('off')"></div>
+          <div class="toggle off" id="tog-pin" onclick="NM.togglePinSetup(this)"></div>
         </div>
         <div class="menu-item">
           <div class="mi-ico" style="background:rgba(59,130,246,.12)"><svg viewBox="0 0 24 24" style="stroke:var(--bl)"><circle cx="12" cy="8" r="4"/><path d="M6 20v-1a6 6 0 0 1 12 0v1"/></svg></div>
           <div style="flex:1"><div class="mi-name">Face ID / Touch ID</div><div class="mi-desc">Biometria habilitada</div></div>
-          <div class="toggle off" id="tog-bio" onclick="this.classList.toggle('off')"></div>
+          <div class="toggle off" id="tog-bio" onclick="NM.toggleBioSetup(this)"></div>
         </div>
       </div>
       <div style="font-size:13px;font-weight:600;color:var(--w);margin-bottom:10px;">Conta</div>
@@ -1083,10 +1083,15 @@ body{font-family:'Poppins',sans-serif;background:#060D1A;
         <svg viewBox="0 0 24 24"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
       </button>
     </div>
-    <div class="detail-preview">
+    <div class="detail-preview" id="dd-preview">
       <div class="detail-preview-type" id="dd-type">PDF</div>
-      <svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" stroke-width="1"/><polyline points="14 2 14 8 20 8" stroke-width="1"/><line x1="16" y1="13" x2="8" y2="13" stroke-width="1"/><line x1="16" y1="17" x2="8" y2="17" stroke-width="1"/></svg>
+      <svg id="dd-preview-icon" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" stroke-width="1"/><polyline points="14 2 14 8 20 8" stroke-width="1"/><line x1="16" y1="13" x2="8" y2="13" stroke-width="1"/><line x1="16" y1="17" x2="8" y2="17" stroke-width="1"/></svg>
+      <img id="dd-preview-img" style="display:none;width:100%;height:100%;object-fit:contain;border-radius:18px;padding:8px;" alt="preview">
+      <iframe id="dd-preview-pdf" style="display:none;width:100%;height:100%;border:none;border-radius:18px;" title="preview"></iframe>
       <div class="detail-wm">NaMão · Organização pessoal de documentos</div>
+    </div>
+    <div id="detail-open-hint" style="display:none;text-align:center;margin:0 18px 6px;font-size:11px;color:var(--g);font-weight:500;">
+      👆 Toque na prévia para abrir o PDF
     </div>
     <div class="meta-list">
       <div class="meta-row"><span class="meta-k">Categoria</span><span class="meta-v" id="dd-cat">—</span></div>
@@ -1887,11 +1892,59 @@ const NM = (() => {
     document.getElementById('dd-date').textContent  = doc.date;
     document.getElementById('dd-type').textContent  = doc.fmt;
     _updateDetailFavUI(doc.fav);
+
+    /* Real preview */
+    const previewImg  = document.getElementById('dd-preview-img');
+    const previewPdf  = document.getElementById('dd-preview-pdf');
+    const previewIcon = document.getElementById('dd-preview-icon');
+    const previewType = document.getElementById('dd-type');
+
+    // Reset
+    previewImg.style.display  = 'none';
+    previewPdf.style.display  = 'none';
+    previewIcon.style.display = 'block';
+    previewType.style.display = 'block';
+
+    const src = doc.url || doc.data;
+    if (src) {
+      if (doc.fmt === 'IMG') {
+        previewImg.src = src;
+        previewImg.style.display = 'block';
+        previewIcon.style.display = 'none';
+        previewType.style.display = 'none';
+      } else if (doc.fmt === 'PDF') {
+        // Show PDF in iframe if data URL, or link if Firebase URL
+        if (src.startsWith('data:')) {
+          previewPdf.src = src;
+          previewPdf.style.display = 'block';
+          previewIcon.style.display = 'none';
+          previewType.style.display = 'none';
+        } else {
+          // Firebase URL - open in new tab button instead
+          previewType.style.display = 'block';
+          previewIcon.style.display = 'block';
+          // Add tap to open
+          document.getElementById('dd-preview').onclick = () => window.open(src, '_blank');
+          document.getElementById('dd-preview').style.cursor = 'pointer';
+          document.getElementById('detail-open-hint').style.display = 'block';
+        }
+      }
+    }
+
     document.getElementById('doc-detail').classList.add('open');
   };
 
   const closeDetail = () => {
     document.getElementById('doc-detail').classList.remove('open');
+    // Reset preview and hint
+    const previewImg = document.getElementById('dd-preview-img');
+    const previewPdf = document.getElementById('dd-preview-pdf');
+    if (previewImg) { previewImg.src = ''; previewImg.style.display = 'none'; }
+    if (previewPdf) { previewPdf.src = ''; previewPdf.style.display = 'none'; }
+    const hint = document.getElementById('detail-open-hint');
+    if (hint) hint.style.display = 'none';
+    const prev = document.getElementById('dd-preview');
+    if (prev) { prev.onclick = null; prev.style.cursor = 'default'; }
   };
 
   const _updateDetailFavUI = (fav) => {
@@ -2050,6 +2103,123 @@ const NM = (() => {
   /* ── Init render ── */
   renderHome(); renderDocs();
 
+  /* ── PIN Setup ── */
+  let _pinSetupBuf = '';
+  let _pinSetupFirst = '';
+  let _pinSetupToggleEl = null;
+
+  const togglePinSetup = (toggleEl) => {
+    const isOff = toggleEl.classList.contains('off');
+    if (isOff) {
+      // Turning ON — open setup
+      _pinSetupToggleEl = toggleEl;
+      _pinSetupBuf = '';
+      _pinSetupFirst = '';
+      document.getElementById('pin-setup-label').textContent = 'Digite seu novo PIN';
+      for (let i=1;i<=4;i++) document.getElementById('psd'+i).classList.remove('on');
+      openSheet('sheet-pin-setup');
+    } else {
+      // Turning OFF — disable PIN
+      toggleEl.classList.add('off');
+      try { localStorage.removeItem('nm_pin'); } catch(_) {}
+      toast('PIN de acesso desativado');
+    }
+  };
+
+  const pinSetupKey = (k) => {
+    if (_pinSetupBuf.length >= 4) return;
+    _pinSetupBuf += k;
+    // Update dots
+    for (let i=1;i<=4;i++)
+      document.getElementById('psd'+i).classList.toggle('on', i <= _pinSetupBuf.length);
+
+    if (_pinSetupBuf.length === 4) {
+      setTimeout(() => {
+        if (!_pinSetupFirst) {
+          // First entry — ask to confirm
+          _pinSetupFirst = _pinSetupBuf;
+          _pinSetupBuf = '';
+          document.getElementById('pin-setup-label').textContent = 'Confirme seu PIN';
+          for (let i=1;i<=4;i++) document.getElementById('psd'+i).classList.remove('on');
+        } else {
+          // Confirmation
+          if (_pinSetupBuf === _pinSetupFirst) {
+            try { localStorage.setItem('nm_pin', _pinSetupFirst); } catch(_) {}
+            if (_pinSetupToggleEl) _pinSetupToggleEl.classList.remove('off');
+            closeAllSheets();
+            toast('✓ PIN cadastrado com sucesso! 🔐');
+          } else {
+            // Mismatch — restart
+            _pinSetupFirst = '';
+            _pinSetupBuf = '';
+            document.getElementById('pin-setup-label').textContent = 'PINs diferentes. Tente novamente.';
+            for (let i=1;i<=4;i++) document.getElementById('psd'+i).classList.remove('on');
+          }
+        }
+      }, 150);
+    }
+  };
+
+  const pinSetupDel = () => {
+    _pinSetupBuf = _pinSetupBuf.slice(0, -1);
+    for (let i=1;i<=4;i++)
+      document.getElementById('psd'+i).classList.toggle('on', i <= _pinSetupBuf.length);
+  };
+
+  const cancelPinSetup = () => {
+    closeAllSheets();
+    _pinSetupBuf = '';
+    _pinSetupFirst = '';
+  };
+
+  /* ── Biometric Setup ── */
+  let _bioToggleEl = null;
+
+  const toggleBioSetup = (toggleEl) => {
+    const isOff = toggleEl.classList.contains('off');
+    if (isOff) {
+      _bioToggleEl = toggleEl;
+      document.getElementById('bio-status').style.display = 'none';
+      document.getElementById('bio-activate-btn').style.display = 'block';
+      openSheet('sheet-bio-setup');
+    } else {
+      toggleEl.classList.add('off');
+      toast('Biometria desativada');
+    }
+  };
+
+  const activateBiometric = async () => {
+    const btn = document.getElementById('bio-activate-btn');
+    btn.textContent = 'Verificando...';
+    btn.disabled = true;
+    try {
+      if (window.PublicKeyCredential) {
+        const available = await PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable();
+        if (available) {
+          if (_bioToggleEl) _bioToggleEl.classList.remove('off');
+          document.getElementById('bio-status').style.display = 'block';
+          btn.style.display = 'none';
+          setTimeout(() => {
+            closeAllSheets();
+            toast('✓ Biometria ativada! 🔓');
+          }, 1000);
+          return;
+        }
+      }
+      // Biometria não disponível
+      toast('Biometria não disponível neste dispositivo', 'err');
+      closeAllSheets();
+    } catch(e) {
+      toast('Erro ao ativar biometria', 'err');
+      closeAllSheets();
+    } finally {
+      btn.textContent = 'Ativar agora';
+      btn.disabled = false;
+    }
+  };
+
+  const cancelBioSetup = () => closeAllSheets();
+
   /* ── Public API ── */
   return {
     state,
@@ -2075,7 +2245,10 @@ const NM = (() => {
     search, clearSearch, setChip, filterCat,
     openDetail, closeDetail, toggleDetailStar, deleteCurrentDoc,
     toggleFav, openShareSheet, quickShare,
-    shareWA, shareEmail, shareNative, copyLink, downloadDoc
+    shareWA, shareEmail, shareNative, copyLink, downloadDoc,
+    /* PIN & Bio setup */
+    togglePinSetup, pinSetupKey, pinSetupDel, cancelPinSetup,
+    toggleBioSetup, activateBiometric, cancelBioSetup
   };
 })();
 </script>
