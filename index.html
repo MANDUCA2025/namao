@@ -1002,7 +1002,7 @@ body{font-family:'Poppins',sans-serif;background:#060D1A;
           <div class="pf ok"><div class="ck"><svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg></div>Scanner PDF</div>
         </div>
       </div>
-      <button class="cta-btn" onclick="NM.toast('Em breve! Pagamento via Stripe será integrado no backend.')">Assinar Premium — R$ 9,90/mês</button>
+      <button class="cta-btn" id="btn-premium-cta" onclick="NM.startCheckout()">Assinar Premium — R$ 9,90/mês</button>
       <p style="font-size:10px;color:var(--gr);text-align:center;margin-top:12px;line-height:1.6;">Renovação automática. Cancele a qualquer momento.<br>Aplicativo para organização pessoal. Não substitui documentos oficiais.</p>
     </div>
     <div class="botnav">
@@ -1520,6 +1520,7 @@ const NM = (() => {
     }
 
     FB.loadDocs();
+    checkPremiumStatus();
   };
 
   const onLogout = () => {
@@ -2179,6 +2180,79 @@ const NM = (() => {
   /* ── Init render ── */
   renderHome(); renderDocs();
 
+  /* ── Premium / Stripe ── */
+  const FUNCTIONS_BASE = 'https://us-central1-namao-app.cloudfunctions.net';
+
+  const startCheckout = async () => {
+    if (!state.user) {
+      toast('Faça login primeiro para assinar o Premium.', 'err');
+      return;
+    }
+    const btn = document.getElementById('btn-premium-cta');
+    if (btn) { btn.textContent = 'Aguarde...'; btn.disabled = true; }
+    try {
+      const res = await fetch(FUNCTIONS_BASE + '/createCheckoutSession', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userId: state.user.uid,
+          userEmail: state.user.email
+        })
+      });
+      const data = await res.json();
+      if (data.url) {
+        window.open(data.url, '_blank');
+        toast('Redirecionando para o pagamento seguro... 🔐');
+      } else {
+        toast('Erro ao iniciar pagamento. Tente novamente.', 'err');
+      }
+    } catch(e) {
+      console.error('startCheckout:', e);
+      toast('Erro de conexão. Verifique sua internet.', 'err');
+    } finally {
+      if (btn) { btn.textContent = 'Assinar Premium — R$ 9,90/mês'; btn.disabled = false; }
+    }
+  };
+
+  const checkPremiumStatus = async () => {
+    if (!state.user) return false;
+    try {
+      const res  = await fetch(FUNCTIONS_BASE + '/checkPremium?userId=' + state.user.uid);
+      const data = await res.json();
+      state.isPremium = data.premium || false;
+      // Update UI
+      const planEl = document.querySelector('.menu-item .mi-desc:last-of-type');
+      if (state.isPremium) {
+        toast('✨ Você é Premium! Aproveite todos os recursos.');
+        document.querySelectorAll('.plan.pro').forEach(el => {
+          el.style.boxShadow = '0 0 30px rgba(34,197,94,0.4)';
+        });
+      }
+      return state.isPremium;
+    } catch(e) {
+      console.error('checkPremium:', e);
+      return false;
+    }
+  };
+
+  // Check premium on URL params (return from Stripe)
+  (function() {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('premium') === 'success') {
+      setTimeout(() => {
+        toast('🎉 Pagamento confirmado! Bem-vindo ao Premium!');
+        checkPremiumStatus();
+        // Clean URL
+        window.history.replaceState({}, '', window.location.pathname);
+      }, 1500);
+    } else if (params.get('premium') === 'cancel') {
+      setTimeout(() => {
+        toast('Pagamento cancelado. Tente novamente quando quiser.');
+        window.history.replaceState({}, '', window.location.pathname);
+      }, 500);
+    }
+  })();
+
   /* ── PIN Setup ── */
   let _pinSetupBuf = '';
   let _pinSetupFirst = '';
@@ -2324,7 +2398,9 @@ const NM = (() => {
     shareWA, shareEmail, shareNative, copyLink, downloadDoc,
     /* PIN & Bio setup */
     togglePinSetup, pinSetupKey, pinSetupDel, cancelPinSetup,
-    toggleBioSetup, activateBiometric, cancelBioSetup
+    toggleBioSetup, activateBiometric, cancelBioSetup,
+    /* Premium */
+    startCheckout, checkPremiumStatus
   };
 })();
 </script>
