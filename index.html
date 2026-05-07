@@ -1741,38 +1741,35 @@ const NM = (() => {
       state.docs.length > 0 ? 'block' : 'none';
 
     /* Dynamic reminder: show based on real docs */
-    const banner = document.getElementById('reminder-banner');
-    if (banner) {
-      // Look for docs with keywords that suggest expirable documents
-      const keywords = ['cnh','habilitação','ipva','iptu','seguro','crlv','passaporte','plano','contrato','apólice'];
-      const reminderDoc = state.docs.find(d =>
-        keywords.some(k => d.name.toLowerCase().includes(k))
+    (function() {
+      const banner = document.getElementById('reminder-banner');
+      const statEl = document.getElementById('stat-reminders');
+      const descEl = document.getElementById('reminder-count-desc');
+      const keywords = ['cnh','habilitacao','ipva','iptu','seguro','crlv','passaporte','plano','contrato','apolice'];
+      const found = state.docs.find(d =>
+        keywords.some(k => d.name.toLowerCase()
+          .normalize('NFD').replace(/[̀-ͯ]/g,'')
+          .includes(k))
       );
-      if (reminderDoc) {
-        state.reminderMsg = 'Lembrete: verifique o vencimento de "' + reminderDoc.name + '"';
-        banner.style.display = 'flex';
-        banner.innerHTML =
-          '<div class="rem-icon"><svg viewBox="0 0 24 24"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg></div>' +
-          '<div style="flex:1"><div style="font-size:13px;font-weight:600;color:var(--w);">⚠️ Verifique: ' + escape(reminderDoc.name) + '</div>' +
-          '<div style="font-size:11px;color:var(--gr);font-weight:400;">Toque para lembrete</div></div>' +
-          '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="var(--y)" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>';
+      if (found) {
+        state.reminderMsg = 'Lembrete: verifique "' + found.name + '"';
+        if (banner) {
+          banner.style.display = 'flex';
+          banner.innerHTML =
+            '<div class="rem-icon"><svg viewBox="0 0 24 24"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg></div>' +
+            '<div style="flex:1"><div style="font-size:13px;font-weight:600;color:var(--w);">⚠️ ' + escape(found.name) + '</div>' +
+            '<div style="font-size:11px;color:var(--gr);font-weight:400;">Toque para ver detalhes</div></div>' +
+            '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="var(--y)" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>';
+        }
+        if (statEl) statEl.textContent = '1';
+        if (descEl) descEl.textContent = '1 ativo';
       } else {
-        banner.style.display = 'none';
-      // Update reminder count
-      const rc = document.getElementById('stat-reminders');
-      if (rc) rc.textContent = '0';
-      const rcd = document.getElementById('reminder-count-desc');
-      if (rcd) rcd.textContent = 'Nenhum ativo';
-      state.reminderMsg = '';
+        state.reminderMsg = '';
+        if (banner) banner.style.display = 'none';
+        if (statEl) statEl.textContent = '0';
+        if (descEl) descEl.textContent = 'Nenhum ativo';
       }
-    }
-    // Update reminder stat when doc found
-    if (reminderDoc) {
-      const rc = document.getElementById('stat-reminders');
-      if (rc) rc.textContent = '1';
-      const rcd = document.getElementById('reminder-count-desc');
-      if (rcd) rcd.textContent = '1 ativo — ' + reminderDoc.name.substring(0, 15);
-    }
+    })();
 
     /* Favs */
     const fs = document.getElementById('fav-scroll');
