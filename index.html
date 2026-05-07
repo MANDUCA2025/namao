@@ -2181,7 +2181,9 @@ const NM = (() => {
   renderHome(); renderDocs();
 
   /* ── Premium / Stripe ── */
-  const FUNCTIONS_BASE = 'https://us-central1-namao-app.cloudfunctions.net';
+  // Firebase Function URLs (Cloud Run format)
+  const FN_CHECKOUT = 'https://createcheckoutsession-n2ayztjq2q-uc.a.run.app';
+  const FN_CHECK_PREMIUM = 'https://checkpremium-n2ayztjq2q-uc.a.run.app';
 
   const startCheckout = async () => {
     if (!state.user) {
@@ -2191,7 +2193,7 @@ const NM = (() => {
     const btn = document.getElementById('btn-premium-cta');
     if (btn) { btn.textContent = 'Aguarde...'; btn.disabled = true; }
     try {
-      const res = await fetch(FUNCTIONS_BASE + '/createCheckoutSession', {
+      const res = await fetch(FN_CHECKOUT, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -2217,7 +2219,7 @@ const NM = (() => {
   const checkPremiumStatus = async () => {
     if (!state.user) return false;
     try {
-      const res  = await fetch(FUNCTIONS_BASE + '/checkPremium?userId=' + state.user.uid);
+      const res  = await fetch(FN_CHECK_PREMIUM + '?userId=' + state.user.uid);
       const data = await res.json();
       state.isPremium = data.premium || false;
       // Update UI
