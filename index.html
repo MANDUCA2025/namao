@@ -25,7 +25,7 @@ import { getAuth, onAuthStateChanged,
          signInWithEmailAndPassword,
          createUserWithEmailAndPassword,
          signInWithPopup, GoogleAuthProvider,
-         sendPasswordResetEmail, signOut,
+         sendPasswordResetEmail, signOut, deleteUser,
          updateProfile }                         from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js';
 import { getFirestore, collection, addDoc,
          getDocs, deleteDoc, updateDoc,
@@ -46,6 +46,15 @@ const auth    = getAuth(app);
 const db      = getFirestore(app);
 const storage = getStorage(app);
 const gProvider = new GoogleAuthProvider();
+
+/* Helpers de Storage expostos para uso fora do módulo (migração / re-cifragem) */
+window._uploadEncrypted = async (path, payload) => {
+  const fileRef = ref(storage, path);
+  await uploadString(fileRef, JSON.stringify(payload), 'raw',
+                     { contentType: 'application/octet-stream' });
+};
+window._getDownloadURL = async (path) => getDownloadURL(ref(storage, path));
+window._deleteStorage  = async (path) => { try { await deleteObject(ref(storage, path)); } catch(_){} };
 
 /* ── Expose helpers to global scope ── */
 window.FB = {
@@ -169,26 +178,38 @@ window.FB = {
 
   saveDoc: async (docData) => {
     const uid = NM.state.user.uid;
-    /* Sanitize filename for Storage path */
     const safeName = docData.name
-      .normalize('NFD')
-      .replace(/[\u0300-\u036f]/g, '')
-      .replace(/[^a-zA-Z0-9._-]/g, '_')
-      .replace(/^_+|_+$/g, '')
+      .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+      .replace(/[^a-zA-Z0-9._-]/g, '_').replace(/^_+|_+$/g, '')
       .substring(0, 60) || 'documento';
 
-    const path    = `usuarios/${uid}/${Date.now()}_${safeName}`;
+    const path    = `usuarios/${uid}/${Date.now()}_${safeName}.enc`;
     const fileRef = ref(storage, path);
-    await uploadString(fileRef, docData.data, 'data_url');
+
+    /* CIFRAGEM client-side antes do upload */
+    if (!window.CRYPTO || !CRYPTO.isUnlocked()) {
+      throw new Error('Cofre trancado — desbloqueie com seu PIN');
+    }
+    const payload = await CRYPTO.encryptDataUrl(docData.data);
+    /* Upload como TEXTO cifrado (JSON com iv+ct) */
+    await uploadString(fileRef, JSON.stringify(payload), 'raw',
+                       { contentType: 'application/octet-stream' });
     const url  = await getDownloadURL(fileRef);
     const meta = {
       name: docData.name, cat: docData.cat, fmt: docData.fmt,
       size: docData.size, date: docData.date, fav: false,
       tags: docData.tags || [], exp: docData.exp || '',
-      url, storagePath: path, timestamp: Date.now()
+      url, storagePath: path, timestamp: Date.now(),
+      enc: 1, encV: 1   /* marcador de criptografia */
     };
     const docRef = await addDoc(collection(db, 'usuarios', uid, 'documentos'), meta);
     return { id: docRef.id, ...meta };
+  },
+
+  /* Atualiza um doc existente (usado na migração) */
+  updateDocMeta: async (docId, patch) => {
+    const uid = NM.state.user.uid;
+    await updateDoc(doc(db, 'usuarios', uid, 'documentos', docId), patch);
   },
 
   deleteDoc: async (docId, storagePath) => {
@@ -202,7 +223,178 @@ window.FB = {
   toggleFav: async (docId, fav) => {
     const uid = NM.state.user.uid;
     await updateDoc(doc(db, 'usuarios', uid, 'documentos', docId), { fav });
+  },
+
+  /* LGPD — Direito do titular: exclusão completa */
+  deleteAccount: async () => {
+    const user = auth.currentUser;
+    if (!user) throw new Error('Não autenticado');
+    const uid = user.uid;
+    /* 1. Deleta todos os documentos do Firestore + arquivos do Storage */
+    const snap = await getDocs(collection(db, 'usuarios', uid, 'documentos'));
+    for (const d of snap.docs) {
+      const data = d.data();
+      try { await deleteDoc(doc(db, 'usuarios', uid, 'documentos', d.id)); } catch(_){}
+      if (data.storagePath) {
+        try { await deleteObject(ref(storage, data.storagePath)); } catch(_){}
+      }
+    }
+    /* 2. Limpa storage local */
+    try {
+      ['nm_docs','nm_pin','nm_bio','nm_consent_v1','nm_family','nm_reminders','nm_wallet']
+        .forEach(k => localStorage.removeItem(k));
+    } catch(_){}
+    /* 3. Deleta a conta de Auth */
+    await deleteUser(user);
   }
+};
+
+/* ============================================================
+   CRYPTO — AES-GCM 256 com chave derivada do PIN (PBKDF2 200k)
+   - PIN nunca fica em texto puro (só hash + salt em localStorage)
+   - Chave de criptografia vive APENAS em memória
+   - Documentos cifrados com IV único por arquivo
+   ============================================================ */
+window.CRYPTO = (() => {
+  const PBKDF2_ITER = 200000;
+  const KEY_STORE   = 'nm_pin_v2';
+  const subtle      = crypto.subtle;
+  const enc         = new TextEncoder();
+  const dec         = new TextDecoder();
+
+  let _key = null;
+  let _pinPlain = null;
+
+  const b64enc = (buf) => btoa(String.fromCharCode(...new Uint8Array(buf)));
+  const b64dec = (str) => Uint8Array.from(atob(str), c => c.charCodeAt(0));
+  const _importPwd = (pwd) =>
+    subtle.importKey('raw', enc.encode(pwd), 'PBKDF2', false, ['deriveBits','deriveKey']);
+
+  const hashPin = async (pin, salt) => {
+    const km = await _importPwd(pin + '|hash');
+    const bits = await subtle.deriveBits(
+      { name:'PBKDF2', salt, iterations: PBKDF2_ITER, hash:'SHA-256' }, km, 256);
+    return b64enc(bits);
+  };
+  const deriveKey = async (pin, salt) => {
+    const km = await _importPwd(pin + '|key');
+    return subtle.deriveKey(
+      { name:'PBKDF2', salt, iterations: PBKDF2_ITER, hash:'SHA-256' },
+      km, { name:'AES-GCM', length:256 }, false, ['encrypt','decrypt']);
+  };
+
+  const isSetup    = () => !!localStorage.getItem(KEY_STORE);
+  const isUnlocked = () => _key !== null;
+  const lock       = () => { _key = null; _pinPlain = null; };
+  const getKey     = () => _key;
+  const getPin     = () => _pinPlain;
+
+  const setupPin = async (pin) => {
+    const salt = crypto.getRandomValues(new Uint8Array(16));
+    const hash = await hashPin(pin, salt);
+    localStorage.setItem(KEY_STORE, JSON.stringify({
+      salt: b64enc(salt), hash, iter: PBKDF2_ITER, v: 2
+    }));
+    try { localStorage.removeItem('nm_pin'); } catch(_){}
+    _key = await deriveKey(pin, salt);
+    _pinPlain = pin;
+  };
+
+  const unlock = async (pin) => {
+    const raw = localStorage.getItem(KEY_STORE);
+    if (!raw) throw new Error('PIN não configurado');
+    const rec = JSON.parse(raw);
+    const salt = b64dec(rec.salt);
+    const h = await hashPin(pin, salt);
+    if (h !== rec.hash) return false;
+    _key = await deriveKey(pin, salt);
+    _pinPlain = pin;
+    return true;
+  };
+
+  const encryptDataUrl = async (dataUrl) => {
+    if (!_key) throw new Error('Cofre trancado');
+    const iv = crypto.getRandomValues(new Uint8Array(12));
+    const ct = await subtle.encrypt({ name:'AES-GCM', iv }, _key, enc.encode(dataUrl));
+    return { iv: b64enc(iv), ct: b64enc(ct), v: 1 };
+  };
+  const decryptDataUrl = async (payload) => {
+    if (!_key) throw new Error('Cofre trancado');
+    const pt = await subtle.decrypt(
+      { name:'AES-GCM', iv: b64dec(payload.iv) }, _key, b64dec(payload.ct));
+    return dec.decode(pt);
+  };
+  const decryptStored = async (text) => decryptDataUrl(JSON.parse(text));
+
+  return { PBKDF2_ITER, isSetup, isUnlocked, lock, getKey, getPin,
+           setupPin, unlock, encryptDataUrl, decryptDataUrl, decryptStored };
+})();
+
+/* AUTO-LOGOUT por inatividade (10 min) — só tranca o cofre */
+window.IDLE = (() => {
+  const TIMEOUT = 10 * 60 * 1000;
+  let _t = null;
+  const reset = () => {
+    if (_t) clearTimeout(_t);
+    _t = setTimeout(() => {
+      try { CRYPTO.lock(); } catch(_){}
+      const pl = document.getElementById('pinlock');
+      if (pl && CRYPTO.isSetup()) {
+        pl.style.display = 'flex';
+        pl.style.opacity = '1';
+        if (window.NM) { NM.state.pinBuf = ''; }
+        if (window.NM && NM.toast) NM.toast('🔒 Sessão bloqueada por inatividade');
+      }
+    }, TIMEOUT);
+  };
+  const start = () => {
+    ['mousemove','touchstart','keydown','click','scroll'].forEach(ev =>
+      window.addEventListener(ev, reset, { passive:true }));
+    reset();
+  };
+  return { start, reset };
+})();
+
+/* Helpers globais para abrir/baixar documentos cifrados */
+window._docBlobCache = new Map();
+
+window.getDocSrc = async (d) => {
+  if (!d) return null;
+  if (!d.enc) return d.url || d.data;
+  if (window._docBlobCache.has(d.id)) return window._docBlobCache.get(d.id);
+  if (!CRYPTO.isUnlocked()) throw new Error('Cofre trancado');
+  const res = await fetch(d.url);
+  const txt = await res.text();
+  const dataUrl = await CRYPTO.decryptStored(txt);
+  const m = /^data:([^;,]+)(;base64)?,([\s\S]*)$/.exec(dataUrl);
+  let blob;
+  if (m && m[2]) {
+    const bin = atob(m[3]);
+    const arr = new Uint8Array(bin.length);
+    for (let i=0;i<bin.length;i++) arr[i] = bin.charCodeAt(i);
+    blob = new Blob([arr], { type: m[1] });
+  } else {
+    blob = await (await fetch(dataUrl)).blob();
+  }
+  const blobUrl = URL.createObjectURL(blob);
+  window._docBlobCache.set(d.id, blobUrl);
+  return blobUrl;
+};
+
+window.getDocDataUrl = async (d) => {
+  if (!d.enc) {
+    if (d.data) return d.data;
+    const r = await fetch(d.url);
+    const b = await r.blob();
+    return await new Promise(res => {
+      const fr = new FileReader();
+      fr.onload = () => res(fr.result);
+      fr.readAsDataURL(b);
+    });
+  }
+  const res = await fetch(d.url);
+  const txt = await res.text();
+  return CRYPTO.decryptStored(txt);
 };
 
 /* ── Auth state ── */
@@ -856,7 +1048,7 @@ input[type="date"].nm-input::-webkit-calendar-picker-indicator{
   </div>
 
   <!-- ═══════ PIN LOCK ═══════ -->
-  <div class="pinlock" id="pinlock">
+  <div class="pinlock" id="pinlock" style="display:none;">
     <div class="pin-logo">
       <div class="pin-logo-icon">
         <svg viewBox="0 0 48 54" width="44" height="50" fill="none">
@@ -1182,6 +1374,29 @@ input[type="date"].nm-input::-webkit-calendar-picker-indicator{
           <div class="mi-arrow"><svg viewBox="0 0 24 24"><polyline points="9 18 15 12 9 6"/></svg></div>
         </div>
       </div>
+      <div style="font-size:13px;font-weight:600;color:var(--w);margin:4px 0 10px;">Privacidade & LGPD</div>
+      <div class="menu-sec">
+        <div class="menu-item" onclick="NM.goto('s-privacy')">
+          <div class="mi-ico"><svg viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg></div>
+          <div style="flex:1"><div class="mi-name">Política de Privacidade</div><div class="mi-desc">Como tratamos seus dados (LGPD)</div></div>
+          <div class="mi-arrow"><svg viewBox="0 0 24 24"><polyline points="9 18 15 12 9 6"/></svg></div>
+        </div>
+        <div class="menu-item" onclick="NM.goto('s-terms')">
+          <div class="mi-ico"><svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="9" y1="13" x2="15" y2="13"/><line x1="9" y1="17" x2="15" y2="17"/></svg></div>
+          <div style="flex:1"><div class="mi-name">Termos de Uso</div><div class="mi-desc">Condições do serviço</div></div>
+          <div class="mi-arrow"><svg viewBox="0 0 24 24"><polyline points="9 18 15 12 9 6"/></svg></div>
+        </div>
+        <div class="menu-item" onclick="NM.contactDPO()">
+          <div class="mi-ico"><svg viewBox="0 0 24 24"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg></div>
+          <div style="flex:1"><div class="mi-name">Contato do Encarregado (DPO)</div><div class="mi-desc">privacidade@namao.app</div></div>
+          <div class="mi-arrow"><svg viewBox="0 0 24 24"><polyline points="9 18 15 12 9 6"/></svg></div>
+        </div>
+        <div class="menu-item" onclick="NM.deleteAccount()">
+          <div class="mi-ico" style="background:rgba(239,68,68,.12)"><svg viewBox="0 0 24 24" style="stroke:var(--r)"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-2 14a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2"/></svg></div>
+          <div style="flex:1"><div class="mi-name" style="color:var(--r)">Excluir minha conta</div><div class="mi-desc">Apaga conta e todos os dados (irreversível)</div></div>
+          <div class="mi-arrow"><svg viewBox="0 0 24 24"><polyline points="9 18 15 12 9 6"/></svg></div>
+        </div>
+      </div>
       <div style="font-size:13px;font-weight:600;color:var(--w);margin:4px 0 10px;">Sair</div>
       <div class="menu-sec">
         <div class="menu-item" onclick="FB.logout()">
@@ -1257,6 +1472,90 @@ input[type="date"].nm-input::-webkit-calendar-picker-indicator{
   </div>
 
   <!-- ═══════ OVERLAY ═══════ -->
+  <!-- ================= Tela: Política de Privacidade ================= -->
+  <div class="screen" id="s-privacy">
+    <div style="padding:18px 16px 90px;">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;">
+        <button class="back-btn" onclick="NM.goto('s-profile')" style="position:static;"><svg viewBox="0 0 24 24"><polyline points="15 18 9 12 15 6"/></svg></button>
+        <div style="font-size:18px;font-weight:700;color:var(--w);">Política de Privacidade</div>
+      </div>
+      <div style="font-size:11px;color:var(--gr);margin-bottom:14px;">Última atualização: Maio/2026 · Versão 1.0</div>
+      <div style="font-size:13.5px;line-height:1.55;color:var(--w);opacity:.92;">
+        <p><b>1. Quem somos.</b> O NaMão é um aplicativo de organização de documentos pessoais operado pela equipe NaMão. Encarregado de Dados (DPO): <b>privacidade@namao.app</b>.</p>
+        <p style="margin-top:12px;"><b>2. Dados que coletamos.</b> (a) E-mail, nome e foto do perfil (Google ou cadastro). (b) Documentos enviados por você (imagens/PDFs de RG, CNH, comprovantes etc.). (c) Metadados: categoria, tags, datas de validade, favoritos. (d) Dados técnicos: endereço IP, modelo do dispositivo, idioma, registros de erro. (e) Status de assinatura via Stripe.</p>
+        <p style="margin-top:12px;"><b>3. Finalidade (art. 7º LGPD).</b> Permitir o armazenamento, busca, compartilhamento e backup dos seus documentos; autenticar você; processar pagamentos da assinatura Premium; emitir lembretes de vencimento; melhorar o serviço.</p>
+        <p style="margin-top:12px;"><b>4. Base legal.</b> Execução de contrato (uso do app), consentimento (notificações push, cookies não essenciais) e legítimo interesse (segurança e prevenção a fraude).</p>
+        <p style="margin-top:12px;"><b>5. Compartilhamento.</b> Não vendemos seus dados. Compartilhamos apenas com operadores: <b>Google Firebase</b> (autenticação, banco e storage), <b>Stripe</b> (pagamentos) e <b>Google/Apple</b> (login social). Dados podem trafegar para os EUA, com cláusulas-padrão de proteção.</p>
+        <p style="margin-top:12px;"><b>6. Retenção.</b> Mantemos seus dados enquanto a conta estiver ativa. Ao excluir a conta no menu <i>Privacidade & LGPD → Excluir minha conta</i>, todos os documentos, metadados e a conta são removidos imediata e irreversivelmente.</p>
+        <p style="margin-top:12px;"><b>7. Segurança.</b> Comunicação por HTTPS/TLS. PIN local com hash. Acesso autenticado. Você é responsável por proteger seu dispositivo, PIN e biometria.</p>
+        <p style="margin-top:12px;"><b>8. Seus direitos (art. 18 LGPD).</b> Confirmar tratamento, acessar, corrigir, anonimizar, portar, eliminar e revogar consentimento. Para exercer, escreva para <b>privacidade@namao.app</b> ou use os controles dentro do app.</p>
+        <p style="margin-top:12px;"><b>9. Crianças.</b> O app é destinado a maiores de 18 anos. Não coletamos conscientemente dados de menores.</p>
+        <p style="margin-top:12px;"><b>10. Alterações.</b> Mudanças relevantes serão comunicadas no app. O uso contínuo após a notificação implica aceitação.</p>
+        <p style="margin-top:14px;font-size:12px;color:var(--gr);">Contato do DPO: <a href="mailto:privacidade@namao.app" style="color:var(--g);">privacidade@namao.app</a></p>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================= Tela: Termos de Uso ================= -->
+  <div class="screen" id="s-terms">
+    <div style="padding:18px 16px 90px;">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;">
+        <button class="back-btn" onclick="NM.goto('s-profile')" style="position:static;"><svg viewBox="0 0 24 24"><polyline points="15 18 9 12 15 6"/></svg></button>
+        <div style="font-size:18px;font-weight:700;color:var(--w);">Termos de Uso</div>
+      </div>
+      <div style="font-size:11px;color:var(--gr);margin-bottom:14px;">Última atualização: Maio/2026 · Versão 1.0</div>
+      <div style="font-size:13.5px;line-height:1.55;color:var(--w);opacity:.92;">
+        <p><b>1. Aceite.</b> Ao usar o NaMão você concorda com estes Termos e com a Política de Privacidade.</p>
+        <p style="margin-top:12px;"><b>2. Conta.</b> Você é responsável por manter a confidencialidade do seu e-mail, senha, PIN e biometria. Notifique-nos imediatamente em caso de uso não autorizado.</p>
+        <p style="margin-top:12px;"><b>3. Plano gratuito e Premium.</b> O plano gratuito permite armazenar até 3 documentos. O plano Premium (R$ 9,90/mês) remove o limite e libera recursos extras. Cobrado via Stripe; cancele a qualquer momento — o acesso permanece até o fim do ciclo pago.</p>
+        <p style="margin-top:12px;"><b>4. Uso aceitável.</b> Você não deve enviar conteúdo ilegal, violar direitos de terceiros, tentar burlar limites técnicos ou usar o app para armazenar documentos de pessoas sem autorização delas.</p>
+        <p style="margin-top:12px;"><b>5. Limitação de responsabilidade.</b> O NaMão é fornecido "como está". Não garantimos disponibilidade ininterrupta. Recomendamos manter cópias próprias dos documentos importantes. Não nos responsabilizamos por perda de acesso decorrente de esquecimento de credenciais ou exclusão pelo titular.</p>
+        <p style="margin-top:12px;"><b>6. Propriedade.</b> Você mantém todos os direitos sobre os documentos que envia. Concede-nos apenas a licença técnica necessária para armazenar e exibir o conteúdo a você.</p>
+        <p style="margin-top:12px;"><b>7. Encerramento.</b> Você pode excluir a conta a qualquer momento em <i>Privacidade & LGPD → Excluir minha conta</i>. Podemos suspender contas que violem estes Termos.</p>
+        <p style="margin-top:12px;"><b>8. Lei aplicável.</b> Estes Termos são regidos pelas leis do Brasil. Foro da comarca do consumidor.</p>
+        <p style="margin-top:14px;font-size:12px;color:var(--gr);">Dúvidas: <a href="mailto:contato@namao.app" style="color:var(--g);">contato@namao.app</a></p>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================= Modal de consentimento LGPD (1º acesso) ================= -->
+  <div id="lgpd-consent" style="display:none;position:fixed;inset:0;z-index:99999;background:rgba(8,15,28,.92);backdrop-filter:blur(14px);align-items:flex-end;justify-content:center;font-family:Poppins,sans-serif;">
+    <div style="background:#0F1B2D;border-top:1px solid rgba(34,197,94,.4);border-radius:24px 24px 0 0;width:100%;max-width:520px;padding:22px 20px 26px;max-height:88vh;overflow-y:auto;box-shadow:0 -20px 60px rgba(0,0,0,.6);">
+      <div style="width:42px;height:4px;background:rgba(255,255,255,.18);border-radius:99px;margin:0 auto 14px;"></div>
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;">
+        <div style="width:38px;height:38px;border-radius:12px;background:linear-gradient(135deg,#22C55E,#16A34A);display:flex;align-items:center;justify-content:center;">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="#fff" stroke-width="2.2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+        </div>
+        <div style="font-size:17px;font-weight:700;color:#fff;">Sua privacidade importa</div>
+      </div>
+      <p style="font-size:13.5px;line-height:1.55;color:rgba(255,255,255,.85);margin:6px 0 12px;">
+        Para usar o NaMão, precisamos do seu consentimento (LGPD) para tratar:
+      </p>
+      <ul style="font-size:13px;line-height:1.6;color:rgba(255,255,255,.78);margin:0 0 14px 18px;padding:0;">
+        <li><b>E-mail e perfil</b> — autenticar você</li>
+        <li><b>Documentos enviados</b> — armazenar e exibir só para você</li>
+        <li><b>Metadados</b> — categorias, datas, favoritos</li>
+        <li><b>Dados técnicos</b> — segurança e prevenção de fraude</li>
+      </ul>
+      <p style="font-size:12.5px;line-height:1.55;color:rgba(255,255,255,.7);margin:0 0 14px;">
+        Retemos seus dados enquanto sua conta existir. Você pode acessar, corrigir ou excluir tudo a qualquer momento em <i>Perfil → Privacidade & LGPD</i>. DPO: <b style="color:#22C55E;">privacidade@namao.app</b>.
+      </p>
+      <div style="display:flex;gap:10px;font-size:12.5px;margin-bottom:14px;">
+        <a onclick="NM.goto('s-privacy');document.getElementById('lgpd-consent').style.display='none';" style="color:#22C55E;text-decoration:underline;cursor:pointer;">Ler Política completa</a>
+        <span style="color:rgba(255,255,255,.3);">·</span>
+        <a onclick="NM.goto('s-terms');document.getElementById('lgpd-consent').style.display='none';" style="color:#22C55E;text-decoration:underline;cursor:pointer;">Termos de Uso</a>
+      </div>
+      <label style="display:flex;align-items:flex-start;gap:10px;font-size:13px;color:rgba(255,255,255,.85);margin-bottom:14px;cursor:pointer;">
+        <input type="checkbox" id="lgpd-chk" style="margin-top:3px;width:18px;height:18px;accent-color:#22C55E;cursor:pointer;" onchange="document.getElementById('lgpd-accept').disabled=!this.checked;document.getElementById('lgpd-accept').style.opacity=this.checked?'1':'.5';">
+        <span>Li e concordo com a <b>Política de Privacidade</b> e os <b>Termos de Uso</b>, e autorizo o tratamento dos meus dados conforme descrito.</span>
+      </label>
+      <div style="display:flex;gap:10px;">
+        <button onclick="NM.declineConsent()" style="flex:1;padding:13px;background:transparent;border:1px solid rgba(255,255,255,.18);color:#fff;border-radius:14px;font-weight:600;font-family:inherit;cursor:pointer;">Recusar</button>
+        <button id="lgpd-accept" disabled style="flex:2;padding:13px;background:linear-gradient(135deg,#22C55E,#16A34A);border:none;color:#0D1B2A;border-radius:14px;font-weight:700;font-family:inherit;cursor:pointer;opacity:.5;" onclick="NM.acceptConsent()">Aceitar e continuar</button>
+      </div>
+    </div>
+  </div>
+
   <div class="overlay" id="overlay" onclick="NM.closeSheetOnly()"></div>
 
   <!-- ═══════ UPLOAD SHEET ═══════ -->
@@ -1358,6 +1657,21 @@ input[type="date"].nm-input::-webkit-calendar-picker-indicator{
   <div class="sheet" id="sheet-pin-setup">
     <div class="sheet-handle"></div>
     <div class="sheet-title">Cadastrar PIN</div>
+
+    <!-- Onboarding / Aviso de segurança -->
+    <div id="pin-onboarding" style="background:linear-gradient(135deg,rgba(45,212,168,.10),rgba(20,184,166,.05));border:1px solid rgba(45,212,168,.25);border-radius:14px;padding:14px 16px;margin-bottom:16px;font-family:'Poppins',sans-serif;">
+      <div style="display:flex;align-items:center;gap:8px;color:#2DD4A8;font-size:13px;font-weight:700;margin-bottom:10px;">
+        <svg viewBox="0 0 24 24" style="width:18px;height:18px;stroke:#2DD4A8;fill:none;stroke-width:2"><path d="M12 1l3 6 6 .9-4.5 4.4 1 6.7L12 16l-5.5 3 1-6.7L3 7.9 9 7l3-6z"/></svg>
+        Seu PIN protege tudo
+      </div>
+      <ul style="list-style:none;padding:0;margin:0;color:var(--w);font-size:12.5px;line-height:1.55;">
+        <li style="display:flex;gap:8px;margin-bottom:6px;"><span style="color:#2DD4A8;">🔐</span><span><b>Criptografia AES-256</b> — seus documentos são cifrados no seu aparelho antes de ir para a nuvem. Nem nós conseguimos abrir.</span></li>
+        <li style="display:flex;gap:8px;margin-bottom:6px;"><span style="color:#2DD4A8;">📵</span><span><b>Funciona offline</b> — depois do 1º acesso, seus documentos ficam no aparelho. Sem internet? Tudo na mão.</span></li>
+        <li style="display:flex;gap:8px;margin-bottom:6px;"><span style="color:#2DD4A8;">🔗</span><span><b>Compartilhamento seguro</b> — links temporários com senha e expiração.</span></li>
+        <li style="display:flex;gap:8px;"><span style="color:#FBBF24;">⚠️</span><span><b>Importante:</b> se esquecer o PIN, <b>não há recuperação</b>. Seus documentos serão perdidos. Anote em local seguro.</span></li>
+      </ul>
+    </div>
+
     <div id="pin-setup-label" style="text-align:center;color:var(--gr);font-size:14px;margin-bottom:18px;">Digite seu novo PIN</div>
     <div class="pin-dots" style="justify-content:center;margin-bottom:24px;">
       <div class="pin-dot" id="psd1"></div><div class="pin-dot" id="psd2"></div>
@@ -1377,7 +1691,7 @@ input[type="date"].nm-input::-webkit-calendar-picker-indicator{
       <button class="pin-key" onclick="NM.pinSetupKey('0')">0</button>
       <button class="pin-key" onclick="NM.pinSetupDel()">⌫</button>
     </div>
-    <button onclick="NM.cancelPinSetup()" style="width:100%;padding:14px;background:rgba(255,255,255,.06);color:var(--w);border:none;border-radius:14px;font-family:'Poppins',sans-serif;font-size:14px;font-weight:600;cursor:pointer;">Cancelar</button>
+    <button id="pin-setup-cancel" onclick="NM.cancelPinSetup()" style="width:100%;padding:14px;background:rgba(255,255,255,.06);color:var(--w);border:none;border-radius:14px;font-family:'Poppins',sans-serif;font-size:14px;font-weight:600;cursor:pointer;">Cancelar</button>
   </div>
 
   <!-- ═══════ BIOMETRIC SETUP SHEET ═══════ -->
@@ -1812,8 +2126,18 @@ const NM = (() => {
       showWelcome(user);
     }
 
-    FB.loadDocs();
+    /* Carregar docs e premium em background */
+    FB.loadDocs().then(() => {
+      /* Migrar documentos legados (não cifrados) — assíncrono */
+      setTimeout(() => { try { _migrateUnencrypted(); } catch(_){} }, 1500);
+    });
     checkPremiumStatus();
+    /* LGPD — pede consentimento se ainda não foi dado */
+    setTimeout(() => { try { checkConsent(); } catch(_){} }, 400);
+    /* Cofre: força setup do PIN se 1ª vez, ou exige unlock */
+    setTimeout(() => { _enforceVault(); }, 600);
+    /* Auto-logout por inatividade */
+    try { window.IDLE && IDLE.start(); } catch(_){}
   };
 
   const onLogout = () => {
@@ -1835,45 +2159,72 @@ const NM = (() => {
     greetEl.textContent = timeGreet() + (name ? ', ' + name + ' 👋' : ' 👋');
   };
 
-  /* ── Pin lock ── */
-  const pinKey = (k) => {
+  /* ── Pin lock — agora valida o PIN via CRYPTO ── */
+  const pinKey = async (k) => {
     if (state.pinBuf.length >= 4) return;
     state.pinBuf += k;
     updatePinDots();
     if (state.pinBuf.length === 4) {
-      setTimeout(() => {
-        document.getElementById('pinlock').style.opacity = '0';
-        document.getElementById('pinlock').style.transition = 'opacity .4s';
-        setTimeout(() => {
-          document.getElementById('pinlock').style.display = 'none';
-          document.getElementById('pinlock').style.opacity = '1';
-        }, 420);
-      }, 150);
+      const pin = state.pinBuf;
+      /* Se ainda não há setup, qualquer PIN passa (será capturado no setup forçado) */
+      if (!CRYPTO.isSetup()) {
+        state.pinBuf = '';
+        updatePinDots();
+        return;
+      }
+      try {
+        const ok = await CRYPTO.unlock(pin);
+        if (ok) {
+          const pl = document.getElementById('pinlock');
+          pl.style.transition = 'opacity .35s';
+          pl.style.opacity = '0';
+          setTimeout(() => { pl.style.display = 'none'; pl.style.opacity = '1'; }, 380);
+          /* limpa cache de blob URLs (chave nova em memória) */
+          window._docBlobCache && window._docBlobCache.forEach(u => URL.revokeObjectURL(u));
+          window._docBlobCache && window._docBlobCache.clear();
+        } else {
+          /* PIN errado — shake nos dots */
+          const lk = document.getElementById('pinlock');
+          lk.style.animation = 'shake .35s';
+          setTimeout(() => { lk.style.animation = ''; }, 400);
+          toast('PIN incorreto', 'err');
+        }
+      } catch(e) { toast('Erro ao validar PIN', 'err'); }
+      state.pinBuf = '';
+      updatePinDots();
     }
   };
   const pinDel = () => { state.pinBuf = state.pinBuf.slice(0, -1); updatePinDots(); };
   const updatePinDots = () => {
-    for (let i = 1; i <= 4; i++)
-      document.getElementById('pd'+i).classList.toggle('on', i <= state.pinBuf.length);
+    for (let i = 1; i <= 4; i++) {
+      const el = document.getElementById('pd'+i);
+      if (el) el.classList.toggle('on', i <= state.pinBuf.length);
+    }
   };
   const biometricUnlock = () => {
-    const pl = document.getElementById('pinlock');
-    pl.style.transition = 'opacity .35s';
-    pl.style.opacity = '0';
-    setTimeout(() => { pl.style.display = 'none'; pl.style.opacity = '1'; }, 370);
-    toast('Face ID reconhecido! 🔓');
+    /* Biometria desabilitada nesta versão — exige PIN para derivar a chave */
+    toast('Use seu PIN para abrir o cofre 🔐');
   };
 
-  /* Auto-dismiss PIN once Firebase resolves */
-  const pinInterval = setInterval(() => {
-    if (window._authResolved) {
-      clearInterval(pinInterval);
-      const pl = document.getElementById('pinlock');
-      pl.style.transition = 'opacity .4s';
-      pl.style.opacity = '0';
-      setTimeout(() => { pl.style.display = 'none'; pl.style.opacity = '1'; }, 420);
+  /* Garante que o cofre esteja configurado / desbloqueado após login */
+  const _enforceVault = () => {
+    const pl = document.getElementById('pinlock');
+    if (!CRYPTO.isSetup()) {
+      /* 1ª vez — setup obrigatório */
+      if (pl) pl.style.display = 'none';
+      _pinSetupForced = true;
+      _pinSetupBuf = ''; _pinSetupFirst = '';
+      document.getElementById('pin-setup-label').textContent = 'Crie seu PIN de 4 dígitos (cripto)';
+      for (let i=1;i<=4;i++) document.getElementById('psd'+i).classList.remove('on');
+      const cancel = document.getElementById('pin-setup-cancel');
+      if (cancel) cancel.style.display = 'none';
+      openSheet('sheet-pin-setup');
+    } else if (!CRYPTO.isUnlocked()) {
+      /* Cofre trancado — pede PIN */
+      if (pl) { pl.style.display = 'flex'; pl.style.opacity = '1'; }
+      state.pinBuf = ''; updatePinDots();
     }
-  }, 100);
+  };
 
   /* ── Sheets ── */
   const openSheet = (id) => {
@@ -2324,7 +2675,11 @@ const NM = (() => {
     elPreview.onclick        = null;
     elPreview.style.cursor   = 'default';
 
-    const src = doc.url || doc.data;
+    let src;
+    try { src = await window.getDocSrc(doc); } catch(e) {
+      if (elHint) { elHint.style.display='block'; elHint.textContent = '🔒 Cofre trancado'; }
+      return;
+    }
     if (!src) return;
 
     if (doc.fmt === 'IMG') {
@@ -2471,7 +2826,8 @@ const NM = (() => {
   };
 
   const _getFileBlob = async (doc) => {
-    const url = doc.url || doc.data;
+    /* Usa getDocSrc para suportar arquivos cifrados (blob URL) ou URL legada */
+    const url = await window.getDocSrc(doc);
     const res = await fetch(url, { mode: 'cors' });
     if (!res.ok) throw new Error('fetch failed');
     return await res.blob();
@@ -2497,10 +2853,12 @@ const NM = (() => {
       }
     } catch(_) {}
     /* Fallback */
-    const a = document.createElement('a');
-    a.href     = doc.url || doc.data;
-    a.download = doc.name + (doc.fmt === 'IMG' ? '.jpg' : '.pdf');
-    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    try {
+      const a = document.createElement('a');
+      a.href     = await window.getDocSrc(doc);
+      a.download = doc.name + (doc.fmt === 'IMG' ? '.jpg' : '.pdf');
+      document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    } catch(e) { return toast('Cofre trancado','err'); }
     setTimeout(() => {
       window.open('https://wa.me/?text=' + encodeURIComponent('📄 *' + doc.name + '*\nEnviado via NaMão ⚡'), '_blank');
       toast('Arquivo salvo — anexe no WhatsApp 📎');
@@ -2549,14 +2907,16 @@ const NM = (() => {
     closeAllSheets();
   };
 
-  const downloadDoc = () => {
+  const downloadDoc = async () => {
     const doc = state.docs.find(d => d.id === state.currentDocId);
     if (!doc) return;
-    const a = document.createElement('a');
-    a.href     = doc.url || doc.data;
-    a.download = doc.name + (doc.fmt === 'IMG' ? '.jpg' : '.pdf');
-    a.click();
-    toast('✓ Download iniciado!');
+    try {
+      const a = document.createElement('a');
+      a.href     = await window.getDocSrc(doc);
+      a.download = doc.name + (doc.fmt === 'IMG' ? '.jpg' : '.pdf');
+      a.click();
+      toast('✓ Download iniciado!');
+    } catch(e) { toast('Cofre trancado — desbloqueie com PIN','err'); }
     closeAllSheets();
   };
 
@@ -2651,60 +3011,70 @@ const NM = (() => {
     }
   })();
 
-  /* ── PIN Setup ── */
+  /* ── PIN Setup (CRYPTO-aware) ── */
   let _pinSetupBuf = '';
   let _pinSetupFirst = '';
   let _pinSetupToggleEl = null;
+  let _pinSetupForced = false;  /* true = obrigatório, sem cancelar */
 
   const togglePinSetup = (toggleEl) => {
-    const isOff = toggleEl.classList.contains('off');
-    if (isOff) {
-      // Turning ON — open setup
-      _pinSetupToggleEl = toggleEl;
-      _pinSetupBuf = '';
-      _pinSetupFirst = '';
-      document.getElementById('pin-setup-label').textContent = 'Digite seu novo PIN';
-      for (let i=1;i<=4;i++) document.getElementById('psd'+i).classList.remove('on');
-      openSheet('sheet-pin-setup');
-    } else {
-      // Turning OFF — disable PIN
-      toggleEl.classList.add('off');
-      try { localStorage.removeItem('nm_pin'); } catch(_) {}
-      toast('PIN de acesso desativado');
-    }
+    /* PIN é obrigatório — clique = TROCAR PIN (nunca desativa) */
+    _pinSetupToggleEl = toggleEl;
+    _pinSetupBuf = ''; _pinSetupFirst = '';
+    _pinSetupForced = false;
+    document.getElementById('pin-setup-label').textContent =
+      CRYPTO.isSetup() ? 'Trocar PIN — digite o novo' : 'Crie seu PIN de 4 dígitos';
+    for (let i=1;i<=4;i++) document.getElementById('psd'+i).classList.remove('on');
+    const cancel = document.getElementById('pin-setup-cancel');
+    if (cancel) cancel.style.display = 'block';
+    openSheet('sheet-pin-setup');
   };
 
-  const pinSetupKey = (k) => {
+  const pinSetupKey = async (k) => {
     if (_pinSetupBuf.length >= 4) return;
     _pinSetupBuf += k;
-    // Update dots
     for (let i=1;i<=4;i++)
       document.getElementById('psd'+i).classList.toggle('on', i <= _pinSetupBuf.length);
 
     if (_pinSetupBuf.length === 4) {
-      setTimeout(() => {
-        if (!_pinSetupFirst) {
-          // First entry — ask to confirm
-          _pinSetupFirst = _pinSetupBuf;
-          _pinSetupBuf = '';
+      if (!_pinSetupFirst) {
+        _pinSetupFirst = _pinSetupBuf;
+        _pinSetupBuf = '';
+        setTimeout(() => {
           document.getElementById('pin-setup-label').textContent = 'Confirme seu PIN';
           for (let i=1;i<=4;i++) document.getElementById('psd'+i).classList.remove('on');
-        } else {
-          // Confirmation
-          if (_pinSetupBuf === _pinSetupFirst) {
-            try { localStorage.setItem('nm_pin', _pinSetupFirst); } catch(_) {}
+        }, 150);
+      } else {
+        if (_pinSetupBuf === _pinSetupFirst) {
+          const newPin = _pinSetupFirst;
+          const isChange = CRYPTO.isSetup();
+          _pinSetupFirst = ''; _pinSetupBuf = '';
+          try {
+            if (isChange) {
+              /* TROCA: re-cifrar todos os docs com a nova chave */
+              await _changePinAndReencrypt(newPin);
+              toast('✓ PIN alterado e documentos recriptografados 🔐');
+            } else {
+              await CRYPTO.setupPin(newPin);
+              toast('✓ Cofre criado com criptografia AES-256 🔐');
+              /* Migra docs antigos (1ª vez) */
+              setTimeout(() => { _migrateUnencrypted(); }, 600);
+            }
             if (_pinSetupToggleEl) _pinSetupToggleEl.classList.remove('off');
+            const togPin = document.getElementById('tog-pin');
+            if (togPin) togPin.classList.remove('off');
+            _pinSetupForced = false;
             closeAllSheets();
-            toast('✓ PIN cadastrado com sucesso! 🔐');
-          } else {
-            // Mismatch — restart
-            _pinSetupFirst = '';
-            _pinSetupBuf = '';
-            document.getElementById('pin-setup-label').textContent = 'PINs diferentes. Tente novamente.';
-            for (let i=1;i<=4;i++) document.getElementById('psd'+i).classList.remove('on');
+          } catch(e) {
+            console.error('setup pin:', e);
+            toast('Erro ao salvar PIN: ' + (e.message||e), 'err');
           }
+        } else {
+          _pinSetupFirst = ''; _pinSetupBuf = '';
+          document.getElementById('pin-setup-label').textContent = 'PINs diferentes. Tente novamente.';
+          for (let i=1;i<=4;i++) document.getElementById('psd'+i).classList.remove('on');
         }
-      }, 150);
+      }
     }
   };
 
@@ -2715,9 +3085,59 @@ const NM = (() => {
   };
 
   const cancelPinSetup = () => {
+    if (_pinSetupForced) { toast('Configurar o PIN é obrigatório para usar o cofre','err'); return; }
     closeAllSheets();
-    _pinSetupBuf = '';
-    _pinSetupFirst = '';
+    _pinSetupBuf = ''; _pinSetupFirst = '';
+  };
+
+  /* ===== Migração: cifra documentos legados ===== */
+  const _migrateUnencrypted = async () => {
+    if (!CRYPTO.isUnlocked()) return;
+    const legacy = state.docs.filter(d => !d.enc && d.url);
+    if (!legacy.length) return;
+    toast('🔐 Migrando ' + legacy.length + ' documento(s) p/ criptografia...');
+    let ok = 0, fail = 0;
+    for (const d of legacy) {
+      try {
+        const dataUrl = await window.getDocDataUrl(d);
+        const payload = await CRYPTO.encryptDataUrl(dataUrl);
+        const newPath = d.storagePath ? d.storagePath + '.enc' :
+          `usuarios/${state.user.uid}/${Date.now()}_migrated.enc`;
+        await window._uploadEncrypted(newPath, payload);
+        const newUrl = await window._getDownloadURL(newPath);
+        await FB.updateDocMeta(d.id, { enc:1, encV:1, url:newUrl, storagePath:newPath });
+        /* apaga arquivo antigo */
+        if (d.storagePath && d.storagePath !== newPath) {
+          try { await window._deleteStorage(d.storagePath); } catch(_){}
+        }
+        d.enc = 1; d.encV = 1; d.url = newUrl; d.storagePath = newPath;
+        ok++;
+      } catch(e) { console.error('migrate', d.id, e); fail++; }
+    }
+    if (ok) toast('✓ ' + ok + ' documento(s) migrados ' + (fail?'('+fail+' falhas)':''));
+  };
+
+  /* Re-cifra todos os docs ao trocar de PIN (mantém acessibilidade) */
+  const _changePinAndReencrypt = async (newPin) => {
+    /* 1. Decifra TUDO com a chave antiga */
+    const decrypted = [];
+    for (const d of state.docs) {
+      if (!d.enc) continue;
+      try {
+        const dataUrl = await window.getDocDataUrl(d);
+        decrypted.push({ d, dataUrl });
+      } catch(e) { throw new Error('Falha ao decifrar ' + d.name); }
+    }
+    /* 2. Troca a chave */
+    await CRYPTO.setupPin(newPin);
+    /* 3. Re-cifra e re-uploaded */
+    for (const { d, dataUrl } of decrypted) {
+      const payload = await CRYPTO.encryptDataUrl(dataUrl);
+      await window._uploadEncrypted(d.storagePath, payload);
+    }
+    /* invalida cache */
+    window._docBlobCache.forEach(u => URL.revokeObjectURL(u));
+    window._docBlobCache.clear();
   };
 
   /* ── Biometric Setup ── */
@@ -2990,11 +3410,12 @@ const NM = (() => {
       const manifest = { app:'NaMao', version:1, ts:Date.now(), docs:[] };
       for (let i=0; i<state.docs.length; i++) {
         const d = state.docs[i];
-        const url = d.url || d.data;
         const ext = d.fmt === 'IMG' ? 'jpg' : 'pdf';
         const name = (d.name||'doc'+i).replace(/[^\w\-]/g,'_') + '.' + ext;
         manifest.docs.push({ id:d.id, name:d.name, file:name, fmt:d.fmt, cat:d.cat, fav:d.fav, ts:d.ts });
         try {
+          /* Decifra (se cifrado) e empacota o conteúdo real */
+          const url = await window.getDocSrc(d);
           const res = await fetch(url);
           const blob = await res.blob();
           zip.file('files/' + name, blob);
@@ -3037,7 +3458,7 @@ const NM = (() => {
     const btn = document.getElementById('ts-gen');
     btn.textContent='Gerando...'; btn.disabled=true;
     try {
-      const url = doc.url || doc.data;
+      const url = await window.getDocSrc(doc);
       const res = await fetch(url); const blob = await res.blob();
       const payload = { name:doc.name, fmt:doc.fmt, expiresAt, file:_b64(await blob.arrayBuffer()) };
       const enc = await _encryptBlob(new Blob([JSON.stringify(payload)]), pass);
@@ -3098,8 +3519,64 @@ const NM = (() => {
     openImport, importPickFile,
     openBackupZip, exportBackupZip,
     openTempShare, generateTempLink
+    /* LGPD: acceptConsent/declineConsent/contactDPO/deleteAccount são anexados depois */
   };
 })();
+
+/* ===== LGPD helpers (escopo módulo) ===== */
+function checkConsent(){
+  try {
+    if (!localStorage.getItem('nm_consent_v1')) {
+      const m = document.getElementById('lgpd-consent');
+      if (m) m.style.display = 'flex';
+    }
+  } catch(_){}
+}
+function acceptConsent(){
+  try {
+    localStorage.setItem('nm_consent_v1', JSON.stringify({
+      v: '1.0', accepted: true, ts: Date.now()
+    }));
+  } catch(_){}
+  const m = document.getElementById('lgpd-consent');
+  if (m) m.style.display = 'none';
+  if (window.NM && NM.toast) NM.toast('Consentimento registrado ✓');
+}
+async function declineConsent(){
+  if (!confirm('Sem o consentimento não é possível usar o NaMão. Deseja sair da conta?')) return;
+  const m = document.getElementById('lgpd-consent');
+  if (m) m.style.display = 'none';
+  try { await FB.logout && FB.logout(); } catch(_){}
+}
+function contactDPO(){
+  const email = 'privacidade@namao.app';
+  const subject = encodeURIComponent('[NaMão] Solicitação LGPD');
+  const body = encodeURIComponent('Olá, gostaria de exercer o seguinte direito (art. 18 LGPD):\n\n[ ] Acesso  [ ] Correção  [ ] Portabilidade  [ ] Eliminação  [ ] Outro\n\nDescrição:\n');
+  window.location.href = `mailto:${email}?subject=${subject}&body=${body}`;
+}
+async function deleteAccount(){
+  const c1 = confirm('⚠️ ATENÇÃO\n\nIsto vai EXCLUIR permanentemente:\n• Sua conta\n• Todos os documentos\n• Todos os arquivos no servidor\n• Todas as configurações\n\nNão há como desfazer. Deseja continuar?');
+  if (!c1) return;
+  const txt = prompt('Para confirmar, digite EXCLUIR (em maiúsculas):');
+  if (txt !== 'EXCLUIR') { if (window.NM) NM.toast('Exclusão cancelada'); return; }
+  try {
+    if (window.NM) NM.toast('⏳ Excluindo conta e dados...');
+    await FB.deleteAccount();
+    alert('Conta excluída com sucesso. Seus dados foram apagados.');
+    location.reload();
+  } catch(e) {
+    console.error('deleteAccount:', e);
+    if (e && e.code === 'auth/requires-recent-login') {
+      alert('Por segurança, faça login novamente e repita a exclusão em seguida.');
+      try { await FB.logout && FB.logout(); } catch(_){}
+    } else {
+      alert('Erro ao excluir: ' + (e.message || e));
+    }
+  }
+}
+/* expõe globalmente para o NM e onclicks inline */
+Object.assign(NM, { acceptConsent, declineConsent, contactDPO, deleteAccount });
+window.NM = NM;
 </script>
 
 <script>
@@ -3142,7 +3619,100 @@ window.addEventListener('load',()=>{
       }
     }catch(_){}
   },300);
+}
 });
+</script>
+
+<!-- ═══════ PWA REAL: Manifest + Service Worker + IndexedDB ═══════ -->
+<link rel="manifest" href="manifest.json">
+<script>
+/* ───── IndexedDB cache (NM_IDB) — guarda documentos cifrados p/ uso offline ───── */
+(function(){
+  const DB_NAME='namao-vault';
+  const DB_VER=1;
+  const STORE_DOCS='docs';
+  const STORE_META='meta';
+  let _db=null;
+  const open=()=>new Promise((res,rej)=>{
+    if(_db) return res(_db);
+    const req=indexedDB.open(DB_NAME,DB_VER);
+    req.onupgradeneeded=()=>{
+      const db=req.result;
+      if(!db.objectStoreNames.contains(STORE_DOCS)) db.createObjectStore(STORE_DOCS,{keyPath:'id'});
+      if(!db.objectStoreNames.contains(STORE_META)) db.createObjectStore(STORE_META,{keyPath:'k'});
+    };
+    req.onsuccess=()=>{_db=req.result;res(_db);};
+    req.onerror=()=>rej(req.error);
+  });
+  const tx=async(store,mode='readonly')=>{
+    const db=await open();
+    return db.transaction(store,mode).objectStore(store);
+  };
+  const put=async(id,data)=>{
+    const s=await tx(STORE_DOCS,'readwrite');
+    return new Promise((res,rej)=>{const r=s.put({id,data,ts:Date.now()});r.onsuccess=()=>res();r.onerror=()=>rej(r.error);});
+  };
+  const get=async(id)=>{
+    const s=await tx(STORE_DOCS);
+    return new Promise((res,rej)=>{const r=s.get(id);r.onsuccess=()=>res(r.result?r.result.data:null);r.onerror=()=>rej(r.error);});
+  };
+  const del=async(id)=>{
+    const s=await tx(STORE_DOCS,'readwrite');
+    return new Promise((res,rej)=>{const r=s.delete(id);r.onsuccess=()=>res();r.onerror=()=>rej(r.error);});
+  };
+  const list=async()=>{
+    const s=await tx(STORE_DOCS);
+    return new Promise((res,rej)=>{const r=s.getAllKeys();r.onsuccess=()=>res(r.result||[]);r.onerror=()=>rej(r.error);});
+  };
+  const clear=async()=>{
+    const s=await tx(STORE_DOCS,'readwrite');
+    return new Promise((res,rej)=>{const r=s.clear();r.onsuccess=()=>res();r.onerror=()=>rej(r.error);});
+  };
+  const setMeta=async(k,v)=>{
+    const s=await tx(STORE_META,'readwrite');
+    return new Promise((res,rej)=>{const r=s.put({k,v});r.onsuccess=()=>res();r.onerror=()=>rej(r.error);});
+  };
+  const getMeta=async(k)=>{
+    const s=await tx(STORE_META);
+    return new Promise((res,rej)=>{const r=s.get(k);r.onsuccess=()=>res(r.result?r.result.v:null);r.onerror=()=>rej(r.error);});
+  };
+  window.NM_IDB={put,get,del,list,clear,setMeta,getMeta};
+})();
+
+/* ───── Service Worker: registra companion sw.js ───── */
+(function(){
+  if(!('serviceWorker' in navigator)) return;
+  // Não registra dentro de iframes (preview do Lovable)
+  let inIframe=false; try{inIframe=window.self!==window.top;}catch(_){inIframe=true;}
+  if(inIframe) return;
+  // Não registra em file:// (sem origem)
+  if(location.protocol==='file:') return;
+  window.addEventListener('load',()=>{
+    navigator.serviceWorker.register('sw.js',{scope:'./'})
+      .then(reg=>{
+        console.log('[NaMão] SW registrado:', reg.scope);
+        reg.addEventListener('updatefound',()=>{
+          const sw=reg.installing;
+          if(!sw) return;
+          sw.addEventListener('statechange',()=>{
+            if(sw.state==='installed' && navigator.serviceWorker.controller){
+              if(window.NM && NM.toast) NM.toast('🔄 Nova versão disponível — recarregue.');
+            }
+          });
+        });
+      })
+      .catch(err=>console.warn('[NaMão] SW falhou:',err));
+  });
+  // Status online/offline
+  const updateOnline=()=>{
+    const on=navigator.onLine;
+    document.documentElement.dataset.online=on?'1':'0';
+    if(!on && window.NM && NM.toast) NM.toast('📵 Modo offline — usando cache local');
+  };
+  window.addEventListener('online',updateOnline);
+  window.addEventListener('offline',updateOnline);
+  updateOnline();
+})();
 </script>
 
 </body>
