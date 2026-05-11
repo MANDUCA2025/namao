@@ -1,0 +1,42 @@
+{
+  "name": "NaMão — Seus documentos sempre com você",
+  "short_name": "NaMão",
+  "description": "Cofre digital criptografado para seus documentos pessoais. Funciona offline.",
+  "start_url": "./namao_v3.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0D1B2A",
+  "theme_color": "#0D1B2A",
+  "lang": "pt-BR",
+  "dir": "ltr",
+  "categories": ["productivity", "utilities", "finance"],
+  "icons": [
+    {
+      "src": "icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Adicionar documento",
+      "short_name": "Adicionar",
+      "url": "./namao_v3.html?action=add",
+      "icons": [{ "src": "icon-192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "Carteira digital",
+      "short_name": "Carteira",
+      "url": "./namao_v3.html?action=wallet",
+      "icons": [{ "src": "icon-192.png", "sizes": "192x192" }]
+    }
+  ]
+}
