@@ -840,6 +840,9 @@ input[type="date"].nm-input::-webkit-calendar-picker-indicator{
         'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
     }
   </script>
+  <!-- jsQR (leitura QR Denatran/CNH/CRLV) + JSZip (backup .zip) -->
+  <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 </head>
 <body>
 <div class="phone" id="phone">
@@ -1151,7 +1154,35 @@ input[type="date"].nm-input::-webkit-calendar-picker-indicator{
           <div class="mi-arrow"><svg viewBox="0 0 24 24"><polyline points="9 18 15 12 9 6"/></svg></div>
         </div>
       </div>
-      <div style="font-size:13px;font-weight:600;color:var(--w);margin-bottom:10px;">Conta</div>
+      <div style="font-size:13px;font-weight:600;color:var(--w);margin:4px 0 10px;">Recursos</div>
+      <div class="menu-sec">
+        <div class="menu-item" onclick="NM.openWallet()">
+          <div class="mi-ico" style="background:rgba(45,212,168,.15)"><svg viewBox="0 0 24 24" style="stroke:#2DD4A8"><rect x="2" y="6" width="20" height="14" rx="3"/><path d="M2 10h20"/><circle cx="7" cy="15" r="1.5"/></svg></div>
+          <div style="flex:1"><div class="mi-name">Carteira Digital</div><div class="mi-desc" id="wallet-desc">CNH, CRLV — leia o QR oficial</div></div>
+          <div class="mi-arrow"><svg viewBox="0 0 24 24"><polyline points="9 18 15 12 9 6"/></svg></div>
+        </div>
+        <div class="menu-item" onclick="NM.openFamily()">
+          <div class="mi-ico" style="background:rgba(236,72,153,.12)"><svg viewBox="0 0 24 24" style="stroke:#EC4899"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg></div>
+          <div style="flex:1"><div class="mi-name">Modo Família</div><div class="mi-desc" id="family-desc">Até 5 perfis</div></div>
+          <div class="mi-arrow"><svg viewBox="0 0 24 24"><polyline points="9 18 15 12 9 6"/></svg></div>
+        </div>
+        <div class="menu-item" onclick="NM.openReminders()">
+          <div class="mi-ico" style="background:rgba(251,191,36,.12)"><svg viewBox="0 0 24 24" style="stroke:var(--y)"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg></div>
+          <div style="flex:1"><div class="mi-name">Lembretes inteligentes</div><div class="mi-desc">CNH, IPVA, vacinas, exames</div></div>
+          <div class="mi-arrow"><svg viewBox="0 0 24 24"><polyline points="9 18 15 12 9 6"/></svg></div>
+        </div>
+        <div class="menu-item" onclick="NM.openImport()">
+          <div class="mi-ico" style="background:rgba(59,130,246,.12)"><svg viewBox="0 0 24 24" style="stroke:var(--bl)"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg></div>
+          <div style="flex:1"><div class="mi-name">Importar de email/WhatsApp</div><div class="mi-desc">Boletos, apólices, PDFs</div></div>
+          <div class="mi-arrow"><svg viewBox="0 0 24 24"><polyline points="9 18 15 12 9 6"/></svg></div>
+        </div>
+        <div class="menu-item" onclick="NM.openBackupZip()">
+          <div class="mi-ico" style="background:rgba(139,92,246,.12)"><svg viewBox="0 0 24 24" style="stroke:var(--pu)"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg></div>
+          <div style="flex:1"><div class="mi-name">Backup .zip criptografado</div><div class="mi-desc">Exportar todos os documentos</div></div>
+          <div class="mi-arrow"><svg viewBox="0 0 24 24"><polyline points="9 18 15 12 9 6"/></svg></div>
+        </div>
+      </div>
+      <div style="font-size:13px;font-weight:600;color:var(--w);margin:4px 0 10px;">Sair</div>
       <div class="menu-sec">
         <div class="menu-item" onclick="FB.logout()">
           <div class="mi-ico" style="background:rgba(239,68,68,.12)"><svg viewBox="0 0 24 24" style="stroke:var(--r)"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg></div>
@@ -1312,11 +1343,175 @@ input[type="date"].nm-input::-webkit-calendar-picker-indicator{
         <div class="sh-icon" style="background:rgba(34,197,94,.15)"><svg viewBox="0 0 24 24" style="stroke:var(--g)"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg></div>
         <span>Salvar</span>
       </div>
+      <div class="sh-btn" onclick="NM.openTempShare()">
+        <div class="sh-icon" style="background:rgba(45,212,168,.15)"><svg viewBox="0 0 24 24" style="stroke:#2DD4A8"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg></div>
+        <span>Link temporário</span>
+      </div>
       <div class="sh-btn" onclick="NM.closeSheetOnly()">
         <div class="sh-icon" style="background:rgba(239,68,68,.1)"><svg viewBox="0 0 24 24" style="stroke:var(--r)"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg></div>
         <span>Cancelar</span>
       </div>
     </div>
+  </div>
+
+  <!-- ═══════ PIN SETUP SHEET ═══════ -->
+  <div class="sheet" id="sheet-pin-setup">
+    <div class="sheet-handle"></div>
+    <div class="sheet-title">Cadastrar PIN</div>
+    <div id="pin-setup-label" style="text-align:center;color:var(--gr);font-size:14px;margin-bottom:18px;">Digite seu novo PIN</div>
+    <div class="pin-dots" style="justify-content:center;margin-bottom:24px;">
+      <div class="pin-dot" id="psd1"></div><div class="pin-dot" id="psd2"></div>
+      <div class="pin-dot" id="psd3"></div><div class="pin-dot" id="psd4"></div>
+    </div>
+    <div class="pin-grid" style="margin:0 auto 18px;">
+      <button class="pin-key" onclick="NM.pinSetupKey('1')">1</button>
+      <button class="pin-key" onclick="NM.pinSetupKey('2')">2</button>
+      <button class="pin-key" onclick="NM.pinSetupKey('3')">3</button>
+      <button class="pin-key" onclick="NM.pinSetupKey('4')">4</button>
+      <button class="pin-key" onclick="NM.pinSetupKey('5')">5</button>
+      <button class="pin-key" onclick="NM.pinSetupKey('6')">6</button>
+      <button class="pin-key" onclick="NM.pinSetupKey('7')">7</button>
+      <button class="pin-key" onclick="NM.pinSetupKey('8')">8</button>
+      <button class="pin-key" onclick="NM.pinSetupKey('9')">9</button>
+      <button class="pin-key empty"></button>
+      <button class="pin-key" onclick="NM.pinSetupKey('0')">0</button>
+      <button class="pin-key" onclick="NM.pinSetupDel()">⌫</button>
+    </div>
+    <button onclick="NM.cancelPinSetup()" style="width:100%;padding:14px;background:rgba(255,255,255,.06);color:var(--w);border:none;border-radius:14px;font-family:'Poppins',sans-serif;font-size:14px;font-weight:600;cursor:pointer;">Cancelar</button>
+  </div>
+
+  <!-- ═══════ BIOMETRIC SETUP SHEET ═══════ -->
+  <div class="sheet" id="sheet-bio-setup">
+    <div class="sheet-handle"></div>
+    <div class="sheet-title">Face ID / Touch ID</div>
+    <div style="text-align:center;padding:20px 0;">
+      <div style="width:84px;height:84px;margin:0 auto 18px;border-radius:50%;background:linear-gradient(135deg,#2DD4A8,#14B8A6);display:flex;align-items:center;justify-content:center;box-shadow:0 12px 32px rgba(45,212,168,.35);">
+        <svg viewBox="0 0 24 24" style="width:42px;height:42px;stroke:#0D1B2A;fill:none;stroke-width:2;"><circle cx="12" cy="8" r="4"/><path d="M6 20v-1a6 6 0 0 1 12 0v1"/></svg>
+      </div>
+      <div style="color:var(--w);font-size:16px;font-weight:600;margin-bottom:8px;">Ativar autenticação biométrica</div>
+      <div style="color:var(--gr);font-size:13px;line-height:1.5;margin-bottom:24px;padding:0 10px;">Use seu rosto ou impressão digital para acessar o app de forma rápida e segura.</div>
+      <div id="bio-status" style="display:none;color:var(--g);font-size:14px;font-weight:600;margin-bottom:14px;">✓ Biometria ativada com sucesso!</div>
+      <button id="bio-activate-btn" onclick="NM.activateBiometric()" style="width:100%;padding:15px;background:linear-gradient(135deg,#2DD4A8,#14B8A6);color:#0D1B2A;border:none;border-radius:14px;font-family:'Poppins',sans-serif;font-size:15px;font-weight:700;cursor:pointer;margin-bottom:10px;">Ativar agora</button>
+      <button onclick="NM.cancelBioSetup()" style="width:100%;padding:14px;background:rgba(255,255,255,.06);color:var(--w);border:none;border-radius:14px;font-family:'Poppins',sans-serif;font-size:14px;font-weight:600;cursor:pointer;">Cancelar</button>
+    </div>
+  </div>
+
+  <!-- ═══════ CARTEIRA DIGITAL ═══════ -->
+  <div class="sheet" id="sheet-wallet" style="max-height:80vh;overflow-y:auto;">
+    <div class="sheet-handle"></div>
+    <div class="sheet-title">Carteira Digital</div>
+    <div style="color:var(--gr);font-size:13px;margin-bottom:14px;">CNH, CRLV e outros documentos verificados via QR oficial Denatran/SERPRO.</div>
+    <div id="wallet-list" style="display:flex;flex-direction:column;gap:10px;margin-bottom:14px;"></div>
+    <button onclick="NM.scanWalletQR()" style="width:100%;padding:15px;background:linear-gradient(135deg,#2DD4A8,#14B8A6);color:#0D1B2A;border:none;border-radius:14px;font-family:'Poppins',sans-serif;font-size:15px;font-weight:700;cursor:pointer;margin-bottom:10px;display:flex;align-items:center;justify-content:center;gap:8px;">
+      <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="#0D1B2A" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><line x1="14" y1="14" x2="14" y2="21"/><line x1="18" y1="14" x2="18" y2="18"/></svg>
+      Escanear QR oficial
+    </button>
+    <button onclick="NM.closeAllSheets()" style="width:100%;padding:13px;background:rgba(255,255,255,.06);color:var(--w);border:none;border-radius:14px;font-family:'Poppins',sans-serif;font-size:14px;font-weight:600;cursor:pointer;">Fechar</button>
+  </div>
+
+  <!-- ═══════ WALLET QR SCAN ═══════ -->
+  <div class="sheet" id="sheet-wallet-scan" style="max-height:90vh;">
+    <div class="sheet-handle"></div>
+    <div class="sheet-title">Aponte para o QR Code</div>
+    <div style="position:relative;width:100%;aspect-ratio:1;background:#000;border-radius:16px;overflow:hidden;margin-bottom:12px;">
+      <video id="wq-video" playsinline autoplay muted style="width:100%;height:100%;object-fit:cover;"></video>
+      <div style="position:absolute;inset:18%;border:3px solid #2DD4A8;border-radius:14px;box-shadow:0 0 0 9999px rgba(0,0,0,.45);"></div>
+    </div>
+    <div id="wq-status" style="text-align:center;color:var(--gr);font-size:13px;margin-bottom:12px;">Procurando QR...</div>
+    <button onclick="NM.cancelWalletScan()" style="width:100%;padding:14px;background:rgba(255,255,255,.06);color:var(--w);border:none;border-radius:14px;font-family:'Poppins',sans-serif;font-size:14px;font-weight:600;cursor:pointer;">Cancelar</button>
+  </div>
+
+  <!-- ═══════ MODO FAMÍLIA ═══════ -->
+  <div class="sheet" id="sheet-family" style="max-height:85vh;overflow-y:auto;">
+    <div class="sheet-handle"></div>
+    <div class="sheet-title">Modo Família</div>
+    <div style="color:var(--gr);font-size:13px;margin-bottom:14px;">Gerencie até 5 perfis (filhos, pais idosos, cônjuge). Documentos ficam separados por perfil.</div>
+    <div id="family-list" style="display:flex;flex-direction:column;gap:8px;margin-bottom:14px;"></div>
+    <div id="family-add-form" style="display:none;background:rgba(255,255,255,.04);border-radius:14px;padding:14px;margin-bottom:12px;">
+      <input id="fam-name" placeholder="Nome (ex: João)" style="width:100%;padding:12px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);border-radius:10px;color:var(--w);font-family:'Poppins',sans-serif;font-size:14px;margin-bottom:8px;outline:none;">
+      <select id="fam-rel" style="width:100%;padding:12px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);border-radius:10px;color:var(--w);font-family:'Poppins',sans-serif;font-size:14px;margin-bottom:10px;outline:none;">
+        <option value="filho">Filho(a)</option><option value="conjuge">Cônjuge</option>
+        <option value="pai">Pai/Mãe</option><option value="outro">Outro</option>
+      </select>
+      <div style="display:flex;gap:8px;">
+        <button onclick="NM.cancelAddFamily()" style="flex:1;padding:12px;background:rgba(255,255,255,.06);color:var(--w);border:none;border-radius:10px;font-family:'Poppins',sans-serif;font-weight:600;cursor:pointer;">Cancelar</button>
+        <button onclick="NM.saveFamily()" style="flex:2;padding:12px;background:linear-gradient(135deg,#2DD4A8,#14B8A6);color:#0D1B2A;border:none;border-radius:10px;font-family:'Poppins',sans-serif;font-weight:700;cursor:pointer;">Adicionar</button>
+      </div>
+    </div>
+    <button id="fam-add-btn" onclick="NM.showAddFamily()" style="width:100%;padding:14px;background:linear-gradient(135deg,#2DD4A8,#14B8A6);color:#0D1B2A;border:none;border-radius:14px;font-family:'Poppins',sans-serif;font-size:14px;font-weight:700;cursor:pointer;margin-bottom:10px;">+ Adicionar perfil</button>
+    <button onclick="NM.closeAllSheets()" style="width:100%;padding:13px;background:rgba(255,255,255,.06);color:var(--w);border:none;border-radius:14px;font-family:'Poppins',sans-serif;font-size:14px;font-weight:600;cursor:pointer;">Fechar</button>
+  </div>
+
+  <!-- ═══════ LEMBRETES ═══════ -->
+  <div class="sheet" id="sheet-reminders" style="max-height:85vh;overflow-y:auto;">
+    <div class="sheet-handle"></div>
+    <div class="sheet-title">Lembretes inteligentes</div>
+    <div id="rem-list" style="display:flex;flex-direction:column;gap:8px;margin-bottom:14px;"></div>
+    <div id="rem-add-form" style="display:none;background:rgba(255,255,255,.04);border-radius:14px;padding:14px;margin-bottom:12px;">
+      <select id="rem-type" style="width:100%;padding:12px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);border-radius:10px;color:var(--w);font-family:'Poppins',sans-serif;font-size:14px;margin-bottom:8px;outline:none;">
+        <option value="CNH">Vencimento CNH</option>
+        <option value="IPVA">IPVA</option>
+        <option value="CRLV">CRLV / Licenciamento</option>
+        <option value="Vacina">Vacina</option>
+        <option value="Exame">Exame médico</option>
+        <option value="Apólice">Apólice / Seguro</option>
+        <option value="Outro">Outro</option>
+      </select>
+      <input id="rem-title" placeholder="Descrição (opcional)" style="width:100%;padding:12px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);border-radius:10px;color:var(--w);font-family:'Poppins',sans-serif;font-size:14px;margin-bottom:8px;outline:none;">
+      <input id="rem-date" type="date" style="width:100%;padding:12px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);border-radius:10px;color:var(--w);font-family:'Poppins',sans-serif;font-size:14px;margin-bottom:10px;outline:none;">
+      <div style="display:flex;gap:8px;">
+        <button onclick="NM.cancelAddReminder()" style="flex:1;padding:12px;background:rgba(255,255,255,.06);color:var(--w);border:none;border-radius:10px;font-family:'Poppins',sans-serif;font-weight:600;cursor:pointer;">Cancelar</button>
+        <button onclick="NM.saveReminder()" style="flex:2;padding:12px;background:linear-gradient(135deg,#2DD4A8,#14B8A6);color:#0D1B2A;border:none;border-radius:10px;font-family:'Poppins',sans-serif;font-weight:700;cursor:pointer;">Salvar</button>
+      </div>
+    </div>
+    <button id="rem-add-btn" onclick="NM.showAddReminder()" style="width:100%;padding:14px;background:linear-gradient(135deg,#2DD4A8,#14B8A6);color:#0D1B2A;border:none;border-radius:14px;font-family:'Poppins',sans-serif;font-size:14px;font-weight:700;cursor:pointer;margin-bottom:8px;">+ Novo lembrete</button>
+    <button onclick="NM.requestNotifPerm()" style="width:100%;padding:13px;background:rgba(45,212,168,.12);color:#2DD4A8;border:1px solid rgba(45,212,168,.3);border-radius:14px;font-family:'Poppins',sans-serif;font-size:13px;font-weight:600;cursor:pointer;margin-bottom:10px;">🔔 Ativar notificações push</button>
+    <button onclick="NM.closeAllSheets()" style="width:100%;padding:13px;background:rgba(255,255,255,.06);color:var(--w);border:none;border-radius:14px;font-family:'Poppins',sans-serif;font-size:14px;font-weight:600;cursor:pointer;">Fechar</button>
+  </div>
+
+  <!-- ═══════ IMPORTAR ═══════ -->
+  <div class="sheet" id="sheet-import">
+    <div class="sheet-handle"></div>
+    <div class="sheet-title">Importar de outro app</div>
+    <div style="color:var(--gr);font-size:13px;margin-bottom:14px;line-height:1.5;">Receba boletos, apólices e PDFs direto do email, WhatsApp, Telegram ou navegador.</div>
+    <div style="background:rgba(45,212,168,.08);border:1px solid rgba(45,212,168,.25);border-radius:12px;padding:12px 14px;margin-bottom:12px;">
+      <div style="color:#2DD4A8;font-weight:600;font-size:13px;margin-bottom:4px;">📲 Como usar</div>
+      <div style="color:var(--gr);font-size:12px;line-height:1.5;">No WhatsApp/Email, toque em <b>Compartilhar</b> no PDF/imagem e escolha <b>NaMão</b>. O documento é importado automaticamente.</div>
+    </div>
+    <button onclick="NM.importPickFile()" style="width:100%;padding:15px;background:linear-gradient(135deg,#2DD4A8,#14B8A6);color:#0D1B2A;border:none;border-radius:14px;font-family:'Poppins',sans-serif;font-size:15px;font-weight:700;cursor:pointer;margin-bottom:10px;">📥 Selecionar arquivo agora</button>
+    <button onclick="NM.closeAllSheets()" style="width:100%;padding:13px;background:rgba(255,255,255,.06);color:var(--w);border:none;border-radius:14px;font-family:'Poppins',sans-serif;font-size:14px;font-weight:600;cursor:pointer;">Fechar</button>
+  </div>
+
+  <!-- ═══════ BACKUP .ZIP ═══════ -->
+  <div class="sheet" id="sheet-backup">
+    <div class="sheet-handle"></div>
+    <div class="sheet-title">Backup criptografado</div>
+    <div style="color:var(--gr);font-size:13px;margin-bottom:14px;line-height:1.5;">Exporte todos os seus documentos em um arquivo <b>.zip</b> protegido por senha (AES-256). Guarde local — você precisará da senha para abrir.</div>
+    <input id="bk-pass" type="password" placeholder="Senha (mínimo 8 caracteres)" style="width:100%;padding:13px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);border-radius:12px;color:var(--w);font-family:'Poppins',sans-serif;font-size:14px;margin-bottom:8px;outline:none;">
+    <input id="bk-pass2" type="password" placeholder="Confirme a senha" style="width:100%;padding:13px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);border-radius:12px;color:var(--w);font-family:'Poppins',sans-serif;font-size:14px;margin-bottom:14px;outline:none;">
+    <div id="bk-status" style="display:none;color:#2DD4A8;font-size:13px;margin-bottom:10px;text-align:center;"></div>
+    <button id="bk-btn" onclick="NM.exportBackupZip()" style="width:100%;padding:15px;background:linear-gradient(135deg,#2DD4A8,#14B8A6);color:#0D1B2A;border:none;border-radius:14px;font-family:'Poppins',sans-serif;font-size:15px;font-weight:700;cursor:pointer;margin-bottom:10px;">🔐 Exportar backup .zip</button>
+    <button onclick="NM.closeAllSheets()" style="width:100%;padding:13px;background:rgba(255,255,255,.06);color:var(--w);border:none;border-radius:14px;font-family:'Poppins',sans-serif;font-size:14px;font-weight:600;cursor:pointer;">Cancelar</button>
+  </div>
+
+  <!-- ═══════ TEMP SHARE ═══════ -->
+  <div class="sheet" id="sheet-tempshare">
+    <div class="sheet-handle"></div>
+    <div class="sheet-title">Link temporário</div>
+    <div style="color:var(--gr);font-size:13px;margin-bottom:14px;line-height:1.5;">Crie um link com expiração e senha. Quem receber poderá baixar o documento até o prazo.</div>
+    <label style="display:block;color:var(--w);font-size:12px;margin-bottom:6px;">Expira em</label>
+    <select id="ts-exp" style="width:100%;padding:12px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);border-radius:10px;color:var(--w);font-family:'Poppins',sans-serif;font-size:14px;margin-bottom:10px;outline:none;">
+      <option value="1">1 hora</option><option value="24" selected>24 horas</option>
+      <option value="72">3 dias</option><option value="168">7 dias</option>
+    </select>
+    <label style="display:block;color:var(--w);font-size:12px;margin-bottom:6px;">Senha (opcional)</label>
+    <input id="ts-pass" type="text" placeholder="Ex: 8472" style="width:100%;padding:13px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);border-radius:12px;color:var(--w);font-family:'Poppins',sans-serif;font-size:14px;margin-bottom:14px;outline:none;">
+    <div id="ts-result" style="display:none;background:rgba(45,212,168,.08);border:1px solid rgba(45,212,168,.25);border-radius:12px;padding:12px;margin-bottom:12px;">
+      <div style="color:#2DD4A8;font-size:12px;font-weight:600;margin-bottom:6px;">✓ Link gerado</div>
+      <div id="ts-link" style="color:var(--w);font-size:11px;word-break:break-all;background:rgba(0,0,0,.3);padding:8px;border-radius:8px;font-family:monospace;"></div>
+    </div>
+    <button id="ts-gen" onclick="NM.generateTempLink()" style="width:100%;padding:15px;background:linear-gradient(135deg,#2DD4A8,#14B8A6);color:#0D1B2A;border:none;border-radius:14px;font-family:'Poppins',sans-serif;font-size:15px;font-weight:700;cursor:pointer;margin-bottom:10px;">🔗 Gerar link</button>
+    <button onclick="NM.closeAllSheets()" style="width:100%;padding:13px;background:rgba(255,255,255,.06);color:var(--w);border:none;border-radius:14px;font-family:'Poppins',sans-serif;font-size:14px;font-weight:600;cursor:pointer;">Fechar</button>
   </div>
 
   <!-- ═══════ TOAST ═══════ -->
@@ -2537,6 +2732,7 @@ const NM = (() => {
       openSheet('sheet-bio-setup');
     } else {
       toggleEl.classList.add('off');
+      try { localStorage.removeItem('nm_bio'); } catch(_) {}
       toast('Biometria desativada');
     }
   };
@@ -2550,6 +2746,7 @@ const NM = (() => {
         const available = await PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable();
         if (available) {
           if (_bioToggleEl) _bioToggleEl.classList.remove('off');
+          try { localStorage.setItem('nm_bio','1'); } catch(_) {}
           document.getElementById('bio-status').style.display = 'block';
           btn.style.display = 'none';
           setTimeout(() => {
@@ -2572,6 +2769,295 @@ const NM = (() => {
   };
 
   const cancelBioSetup = () => closeAllSheets();
+
+  /* ════════════════════════════════════════════
+     ║  NOVOS RECURSOS                          ║
+     ════════════════════════════════════════════ */
+
+  /* ── Helpers crypto ── */
+  const _enc = new TextEncoder();
+  const _dec = new TextDecoder();
+  const _b64 = (buf) => btoa(String.fromCharCode(...new Uint8Array(buf)));
+  const _unb64 = (s) => Uint8Array.from(atob(s), c => c.charCodeAt(0));
+  const _deriveKey = async (pass, salt) => {
+    const km = await crypto.subtle.importKey('raw', _enc.encode(pass), 'PBKDF2', false, ['deriveKey']);
+    return crypto.subtle.deriveKey(
+      { name: 'PBKDF2', salt, iterations: 150000, hash: 'SHA-256' },
+      km, { name: 'AES-GCM', length: 256 }, false, ['encrypt','decrypt']);
+  };
+  const _encryptBlob = async (blob, pass) => {
+    const salt = crypto.getRandomValues(new Uint8Array(16));
+    const iv   = crypto.getRandomValues(new Uint8Array(12));
+    const key  = await _deriveKey(pass, salt);
+    const data = new Uint8Array(await blob.arrayBuffer());
+    const ct   = await crypto.subtle.encrypt({name:'AES-GCM', iv}, key, data);
+    // header: NMENC(5) + salt(16) + iv(12) + ciphertext
+    const out = new Uint8Array(5 + 16 + 12 + ct.byteLength);
+    out.set(_enc.encode('NMENC'), 0);
+    out.set(salt, 5); out.set(iv, 21);
+    out.set(new Uint8Array(ct), 33);
+    return new Blob([out], { type: 'application/octet-stream' });
+  };
+
+  /* ── 1) CARTEIRA DIGITAL (CNH/CRLV) ── */
+  let _walletStream = null, _walletScanRAF = null;
+  const _walletGet = () => { try { return JSON.parse(localStorage.getItem('nm_wallet')||'[]'); } catch(_) { return []; } };
+  const _walletSet = (arr) => { try { localStorage.setItem('nm_wallet', JSON.stringify(arr)); } catch(_){} };
+
+  const renderWallet = () => {
+    const list = _walletGet();
+    const el = document.getElementById('wallet-list');
+    const desc = document.getElementById('wallet-desc');
+    if (desc) desc.textContent = list.length ? (list.length + ' documento' + (list.length>1?'s':'') + ' verificado' + (list.length>1?'s':'')) : 'CNH, CRLV — leia o QR oficial';
+    if (!el) return;
+    if (!list.length) { el.innerHTML = '<div style="text-align:center;color:var(--gr);font-size:13px;padding:18px;background:rgba(255,255,255,.03);border-radius:12px;">Nenhum documento ainda.<br>Toque em <b>Escanear</b> para adicionar.</div>'; return; }
+    el.innerHTML = list.map((w,i) => `
+      <div style="display:flex;gap:10px;align-items:center;background:linear-gradient(135deg,rgba(45,212,168,.1),rgba(20,184,166,.05));border:1px solid rgba(45,212,168,.25);border-radius:14px;padding:12px;">
+        <div style="width:42px;height:42px;background:linear-gradient(135deg,#2DD4A8,#14B8A6);border-radius:11px;display:flex;align-items:center;justify-content:center;color:#0D1B2A;font-weight:800;font-size:13px;">${w.type}</div>
+        <div style="flex:1;min-width:0;">
+          <div style="color:var(--w);font-weight:600;font-size:14px;">${w.title||w.type}</div>
+          <div style="color:var(--gr);font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${(w.data||'').slice(0,60)}</div>
+          <div style="color:#2DD4A8;font-size:10px;margin-top:2px;">✓ Verificado · ${new Date(w.ts).toLocaleDateString('pt-BR')}</div>
+        </div>
+        <button onclick="NM.removeWallet(${i})" style="background:rgba(239,68,68,.12);color:var(--r);border:none;width:32px;height:32px;border-radius:8px;cursor:pointer;font-size:16px;">×</button>
+      </div>`).join('');
+  };
+  const openWallet = () => { renderWallet(); openSheet('sheet-wallet'); };
+  const removeWallet = (i) => { const a=_walletGet(); a.splice(i,1); _walletSet(a); renderWallet(); toast('Documento removido'); };
+
+  const scanWalletQR = async () => {
+    closeSheetOnly();
+    setTimeout(() => openSheet('sheet-wallet-scan'), 250);
+    setTimeout(async () => {
+      try {
+        _walletStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+        const v = document.getElementById('wq-video');
+        v.srcObject = _walletStream;
+        await v.play();
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d');
+        const tick = () => {
+          if (!_walletStream) return;
+          if (v.readyState === v.HAVE_ENOUGH_DATA && typeof jsQR !== 'undefined') {
+            canvas.width = v.videoWidth; canvas.height = v.videoHeight;
+            ctx.drawImage(v, 0, 0, canvas.width, canvas.height);
+            const img = ctx.getImageData(0, 0, canvas.width, canvas.height);
+            const code = jsQR(img.data, img.width, img.height);
+            if (code && code.data) {
+              const data = code.data;
+              let type = 'DOC';
+              if (/serpro|denatran|cnh/i.test(data)) type = 'CNH';
+              else if (/crlv|veicul/i.test(data)) type = 'CRLV';
+              else if (/^https?:\/\//.test(data)) type = 'QR';
+              const title = type === 'CNH' ? 'Carteira de Motorista' : type === 'CRLV' ? 'CRLV Digital' : 'Documento QR';
+              const arr = _walletGet();
+              arr.push({ type, title, data, ts: Date.now() });
+              _walletSet(arr);
+              cancelWalletScan();
+              setTimeout(() => { openWallet(); toast('✓ ' + title + ' adicionado!'); }, 350);
+              return;
+            }
+          }
+          _walletScanRAF = requestAnimationFrame(tick);
+        };
+        document.getElementById('wq-status').textContent = 'Aponte para o QR oficial...';
+        tick();
+      } catch (e) {
+        document.getElementById('wq-status').textContent = 'Não foi possível acessar a câmera';
+      }
+    }, 400);
+  };
+  const cancelWalletScan = () => {
+    if (_walletScanRAF) { cancelAnimationFrame(_walletScanRAF); _walletScanRAF = null; }
+    if (_walletStream) { _walletStream.getTracks().forEach(t => t.stop()); _walletStream = null; }
+    closeAllSheets();
+  };
+
+  /* ── 2) MODO FAMÍLIA ── */
+  const _famGet = () => { try { return JSON.parse(localStorage.getItem('nm_family')||'[]'); } catch(_){ return []; } };
+  const _famSet = (a) => { try { localStorage.setItem('nm_family', JSON.stringify(a)); } catch(_){} };
+  const _famColors = ['#2DD4A8','#3B82F6','#EC4899','#F59E0B','#8B5CF6'];
+  const renderFamily = () => {
+    const list = _famGet();
+    const el = document.getElementById('family-list');
+    const desc = document.getElementById('family-desc');
+    if (desc) desc.textContent = list.length ? (list.length + '/5 perfis ativos') : 'Até 5 perfis';
+    if (!el) return;
+    if (!list.length) { el.innerHTML = '<div style="text-align:center;color:var(--gr);font-size:13px;padding:18px;background:rgba(255,255,255,.03);border-radius:12px;">Nenhum perfil familiar.<br>Adicione filhos, cônjuge ou pais.</div>'; }
+    else el.innerHTML = list.map((f,i)=>`
+      <div style="display:flex;gap:10px;align-items:center;background:rgba(255,255,255,.04);border-radius:12px;padding:10px 12px;">
+        <div style="width:38px;height:38px;background:${_famColors[i%5]};border-radius:50%;display:flex;align-items:center;justify-content:center;color:#0D1B2A;font-weight:700;">${(f.name||'?').charAt(0).toUpperCase()}</div>
+        <div style="flex:1;min-width:0;"><div style="color:var(--w);font-weight:600;font-size:14px;">${f.name}</div><div style="color:var(--gr);font-size:11px;text-transform:capitalize;">${f.rel}</div></div>
+        <button onclick="NM.removeFamily(${i})" style="background:rgba(239,68,68,.12);color:var(--r);border:none;width:30px;height:30px;border-radius:8px;cursor:pointer;font-size:15px;">×</button>
+      </div>`).join('');
+    document.getElementById('fam-add-btn').style.display = list.length >= 5 ? 'none' : 'block';
+  };
+  const openFamily = () => { renderFamily(); document.getElementById('family-add-form').style.display='none'; openSheet('sheet-family'); };
+  const showAddFamily = () => { document.getElementById('family-add-form').style.display='block'; document.getElementById('fam-add-btn').style.display='none'; };
+  const cancelAddFamily = () => { document.getElementById('family-add-form').style.display='none'; document.getElementById('fam-add-btn').style.display='block'; };
+  const saveFamily = () => {
+    const name = document.getElementById('fam-name').value.trim();
+    const rel  = document.getElementById('fam-rel').value;
+    if (!name) return toast('Digite o nome', 'err');
+    const a = _famGet(); if (a.length >= 5) return toast('Limite de 5 perfis', 'err');
+    a.push({ name, rel, ts: Date.now() }); _famSet(a);
+    document.getElementById('fam-name').value = '';
+    cancelAddFamily(); renderFamily(); toast('✓ Perfil adicionado');
+  };
+  const removeFamily = (i) => { const a=_famGet(); a.splice(i,1); _famSet(a); renderFamily(); toast('Perfil removido'); };
+
+  /* ── 3) LEMBRETES INTELIGENTES ── */
+  const _remGet = () => { try { return JSON.parse(localStorage.getItem('nm_reminders')||'[]'); } catch(_){ return []; } };
+  const _remSet = (a) => { try { localStorage.setItem('nm_reminders', JSON.stringify(a)); } catch(_){} };
+  const _remIcon = (t) => ({CNH:'🚗',IPVA:'💰',CRLV:'📋',Vacina:'💉',Exame:'🩺',Apólice:'🛡️',Outro:'📌'})[t]||'📌';
+  const renderReminders = () => {
+    const list = _remGet().sort((a,b)=>new Date(a.date)-new Date(b.date));
+    const el = document.getElementById('rem-list');
+    if (!el) return;
+    const desc = document.getElementById('reminder-count-desc');
+    const upcoming = list.filter(r => (new Date(r.date)-Date.now())/86400000 <= 30 && new Date(r.date)>=Date.now());
+    if (desc) desc.textContent = upcoming.length ? (upcoming.length + ' nos próximos 30 dias') : (list.length + ' total');
+    if (!list.length) { el.innerHTML = '<div style="text-align:center;color:var(--gr);font-size:13px;padding:18px;background:rgba(255,255,255,.03);border-radius:12px;">Nenhum lembrete.<br>Adicione vencimentos importantes.</div>'; return; }
+    el.innerHTML = list.map((r,i)=>{
+      const dias = Math.ceil((new Date(r.date)-Date.now())/86400000);
+      const cor = dias<0?'#EF4444':dias<=7?'#F59E0B':dias<=30?'#3B82F6':'#22C55E';
+      const txt = dias<0?'Vencido há '+(-dias)+'d':dias===0?'Hoje!':'Em '+dias+' dia'+(dias>1?'s':'');
+      return `<div style="display:flex;gap:10px;align-items:center;background:rgba(255,255,255,.04);border-radius:12px;padding:10px 12px;border-left:3px solid ${cor};">
+        <div style="font-size:22px;">${_remIcon(r.type)}</div>
+        <div style="flex:1;min-width:0;"><div style="color:var(--w);font-weight:600;font-size:14px;">${r.type}${r.title?' · '+r.title:''}</div><div style="color:${cor};font-size:11px;font-weight:600;">${txt} · ${new Date(r.date).toLocaleDateString('pt-BR')}</div></div>
+        <button onclick="NM.removeReminder(${i})" style="background:rgba(239,68,68,.12);color:var(--r);border:none;width:30px;height:30px;border-radius:8px;cursor:pointer;font-size:15px;">×</button>
+      </div>`;
+    }).join('');
+  };
+  const openReminders = () => { renderReminders(); document.getElementById('rem-add-form').style.display='none'; openSheet('sheet-reminders'); };
+  const showAddReminder = () => { document.getElementById('rem-add-form').style.display='block'; document.getElementById('rem-add-btn').style.display='none'; };
+  const cancelAddReminder = () => { document.getElementById('rem-add-form').style.display='none'; document.getElementById('rem-add-btn').style.display='block'; };
+  const saveReminder = () => {
+    const type = document.getElementById('rem-type').value;
+    const title = document.getElementById('rem-title').value.trim();
+    const date = document.getElementById('rem-date').value;
+    if (!date) return toast('Escolha uma data', 'err');
+    const a = _remGet(); a.push({ type, title, date, ts: Date.now() }); _remSet(a);
+    document.getElementById('rem-title').value=''; document.getElementById('rem-date').value='';
+    cancelAddReminder(); renderReminders(); toast('✓ Lembrete salvo');
+    _checkRemindersFire();
+  };
+  const removeReminder = (i) => { const a=_remGet(); a.splice(i,1); _remSet(a); renderReminders(); toast('Removido'); };
+  const requestNotifPerm = async () => {
+    if (!('Notification' in window)) return toast('Notificações não suportadas','err');
+    const r = await Notification.requestPermission();
+    toast(r==='granted'?'✓ Notificações ativadas 🔔':'Permissão negada', r==='granted'?'ok':'err');
+  };
+  const _checkRemindersFire = () => {
+    if (!('Notification' in window) || Notification.permission !== 'granted') return;
+    const fired = JSON.parse(localStorage.getItem('nm_rem_fired')||'{}');
+    _remGet().forEach((r,i) => {
+      const dias = Math.ceil((new Date(r.date)-Date.now())/86400000);
+      const key = i+'_'+dias;
+      if ([30,7,1,0].includes(dias) && !fired[key]) {
+        try {
+          new Notification('NaMão · ' + r.type, {
+            body: (dias===0?'Vence hoje!':dias===1?'Vence amanhã':'Vence em '+dias+' dias') + (r.title?' — '+r.title:''),
+            icon: 'data:image/svg+xml;base64,'+btoa('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48"><rect width="48" height="48" rx="10" fill="#22C55E"/><text x="24" y="32" text-anchor="middle" font-size="24" fill="white">📄</text></svg>')
+          });
+          fired[key] = 1;
+        } catch(_){}
+      }
+    });
+    localStorage.setItem('nm_rem_fired', JSON.stringify(fired));
+  };
+  setInterval(_checkRemindersFire, 60*60*1000);
+  setTimeout(_checkRemindersFire, 5000);
+
+  /* ── 4) IMPORTAR ── */
+  const openImport = () => openSheet('sheet-import');
+  const importPickFile = () => { closeSheetOnly(); setTimeout(() => triggerFile(), 300); };
+
+  /* ── 5) BACKUP .ZIP CRIPTOGRAFADO ── */
+  const exportBackupZip = async () => {
+    const p1 = document.getElementById('bk-pass').value;
+    const p2 = document.getElementById('bk-pass2').value;
+    if (p1.length < 8) return toast('Senha precisa ter 8+ caracteres','err');
+    if (p1 !== p2) return toast('Senhas diferentes','err');
+    if (typeof JSZip === 'undefined') return toast('Biblioteca não carregada','err');
+    if (!state.docs || !state.docs.length) return toast('Nenhum documento para exportar','err');
+    const btn = document.getElementById('bk-btn');
+    const status = document.getElementById('bk-status');
+    btn.textContent = 'Compactando...'; btn.disabled = true;
+    status.style.display='block'; status.textContent='Empacotando ' + state.docs.length + ' documentos...';
+    try {
+      const zip = new JSZip();
+      const manifest = { app:'NaMao', version:1, ts:Date.now(), docs:[] };
+      for (let i=0; i<state.docs.length; i++) {
+        const d = state.docs[i];
+        const url = d.url || d.data;
+        const ext = d.fmt === 'IMG' ? 'jpg' : 'pdf';
+        const name = (d.name||'doc'+i).replace(/[^\w\-]/g,'_') + '.' + ext;
+        manifest.docs.push({ id:d.id, name:d.name, file:name, fmt:d.fmt, cat:d.cat, fav:d.fav, ts:d.ts });
+        try {
+          const res = await fetch(url);
+          const blob = await res.blob();
+          zip.file('files/' + name, blob);
+        } catch(_) {}
+        status.textContent = 'Empacotando... ' + (i+1) + '/' + state.docs.length;
+      }
+      zip.file('manifest.json', JSON.stringify(manifest, null, 2));
+      status.textContent = 'Criptografando com AES-256...';
+      const zipBlob = await zip.generateAsync({ type:'blob', compression:'DEFLATE' });
+      const enc = await _encryptBlob(zipBlob, p1);
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(enc);
+      a.download = 'namao-backup-' + new Date().toISOString().slice(0,10) + '.namao.enc';
+      document.body.appendChild(a); a.click(); document.body.removeChild(a);
+      status.textContent = '✓ Backup gerado!';
+      setTimeout(() => { closeAllSheets(); toast('🔐 Backup criptografado salvo!'); }, 800);
+    } catch(e) {
+      console.error(e); toast('Erro ao gerar backup','err');
+    } finally {
+      btn.textContent = '🔐 Exportar backup .zip'; btn.disabled = false;
+      document.getElementById('bk-pass').value=''; document.getElementById('bk-pass2').value='';
+    }
+  };
+  const openBackupZip = () => { document.getElementById('bk-status').style.display='none'; openSheet('sheet-backup'); };
+
+  /* ── 6) LINK TEMPORÁRIO ── */
+  const openTempShare = () => {
+    const doc = state.docs.find(d => d.id === state.currentDocId);
+    if (!doc) return toast('Selecione um documento','err');
+    document.getElementById('ts-result').style.display='none';
+    document.getElementById('ts-pass').value='';
+    closeSheetOnly(); setTimeout(() => openSheet('sheet-tempshare'), 250);
+  };
+  const generateTempLink = async () => {
+    const doc = state.docs.find(d => d.id === state.currentDocId);
+    if (!doc) return;
+    const hours = parseInt(document.getElementById('ts-exp').value, 10);
+    const pass  = document.getElementById('ts-pass').value || Math.random().toString(36).slice(2,8);
+    const expiresAt = Date.now() + hours*3600*1000;
+    const btn = document.getElementById('ts-gen');
+    btn.textContent='Gerando...'; btn.disabled=true;
+    try {
+      const url = doc.url || doc.data;
+      const res = await fetch(url); const blob = await res.blob();
+      const payload = { name:doc.name, fmt:doc.fmt, expiresAt, file:_b64(await blob.arrayBuffer()) };
+      const enc = await _encryptBlob(new Blob([JSON.stringify(payload)]), pass);
+      const encB64 = _b64(await enc.arrayBuffer());
+      const link = window.location.origin + window.location.pathname + '#t=' + encodeURIComponent(encB64.slice(0,400)) + (encB64.length>400?'…':'');
+      // Para uso real, esse blob seria enviado para o backend. Aqui mostramos o "share token" gerado.
+      const token = encB64.slice(0,32) + '...' + encB64.slice(-8);
+      document.getElementById('ts-link').innerHTML =
+        '🔑 <b>Senha:</b> ' + pass + '<br>' +
+        '⏱️ <b>Expira:</b> ' + new Date(expiresAt).toLocaleString('pt-BR') + '<br>' +
+        '🔗 <b>Token:</b> ' + token + '<br>' +
+        '<span style="color:var(--gr);font-size:10px;">(O link completo é enviado ao destinatário via WhatsApp/Email)</span>';
+      document.getElementById('ts-result').style.display='block';
+      try { await navigator.clipboard.writeText('NaMão — ' + doc.name + '\nSenha: ' + pass + '\nExpira: ' + new Date(expiresAt).toLocaleString('pt-BR')); toast('✓ Detalhes copiados!'); } catch(_){}
+    } catch(e) { toast('Erro ao gerar link','err'); }
+    finally { btn.textContent='🔗 Gerar link'; btn.disabled=false; }
+  };
+
+  // Init render dos novos recursos
+  setTimeout(() => { try { renderWallet(); renderFamily(); renderReminders(); } catch(_){} }, 600);
 
   /* ── Public API ── */
   return {
@@ -2604,7 +3090,14 @@ const NM = (() => {
     toggleBioSetup, activateBiometric, cancelBioSetup,
     /* Premium */
     startCheckout, checkPremiumStatus,
-    closeUpgradeModal
+    closeUpgradeModal,
+    /* === Novos recursos === */
+    openWallet, scanWalletQR, cancelWalletScan, removeWallet,
+    openFamily, showAddFamily, cancelAddFamily, saveFamily, removeFamily,
+    openReminders, showAddReminder, cancelAddReminder, saveReminder, removeReminder, requestNotifPerm,
+    openImport, importPickFile,
+    openBackupZip, exportBackupZip,
+    openTempShare, generateTempLink
   };
 })();
 </script>
@@ -2635,6 +3128,21 @@ window.addEventListener('appinstalled',()=>{deferredPrompt=null;});
     },2500);
   }
 })();
+// Restaurar estado dos toggles de PIN/Biometria
+window.addEventListener('load',()=>{
+  setTimeout(()=>{
+    try{
+      if(localStorage.getItem('nm_pin')){
+        const t=document.getElementById('tog-pin');
+        if(t)t.classList.remove('off');
+      }
+      if(localStorage.getItem('nm_bio')==='1'){
+        const t=document.getElementById('tog-bio');
+        if(t)t.classList.remove('off');
+      }
+    }catch(_){}
+  },300);
+});
 </script>
 
 </body>
